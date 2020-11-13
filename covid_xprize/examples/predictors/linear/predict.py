@@ -128,14 +128,21 @@ def predict_df(start_date_str: str, end_date_str: str, path_to_ips_file: str, ve
         # Start predicting from start_date, unless there's a gap since last known date
         current_date = min(last_known_date + np.timedelta64(1, 'D'), start_date)
         days_ahead = 0
+        # 数据有可能少于, 比如Brunei，这时要么pass该地区，要么缩小NB_LOOKBACK_DAYS的值
+        if past_cases.shape[0] < NB_LOOKBACK_DAYS:
+            print('历史数据只有%s' % past_cases.shape[0])
+            continue
         while current_date <= end_date:
             # Prepare data
             X_cases = past_cases[-NB_LOOKBACK_DAYS:]
             X_npis = past_npis[-NB_LOOKBACK_DAYS:]
+            print('X cases shape: ', X_cases.shape)
+            print('X npis shape: ', X_npis.shape)
             X = np.concatenate([X_cases.flatten(),
                                 X_npis.flatten()])
 
             # Make the prediction (reshape so that sklearn is happy)
+            print('X shape: ', X.shape)
             pred = model.predict(X.reshape(1, -1))[0]
             pred = max(0, pred)  # Do not allow predicting negative cases
             # Add if it's a requested date
