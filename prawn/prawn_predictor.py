@@ -46,7 +46,7 @@ class DataProcessor:
     def __init__(self, data_url='data/OxCGRT_latest.csv'):
         self.df = self._prepare_dataframe(data_url)
         geos = self.df.GeoID.unique()
-        print(geos)
+        # print(geos)
         self._geo_id_encoder = None
         self.geo_id_encoder = geos
         self.country_samples = self._create_country_samples(self.df, geos)
@@ -74,7 +74,7 @@ class DataProcessor:
         self._fill_missing_values(df)
 
         # 从开始有病例算起
-        df = df[df['ConfirmedCases'] > 0]
+        # df = df[df['ConfirmedCases'] > 0]
 
         # Compute number of new cases and deaths each day
         df['NewCases'] = df.groupby('GeoID').ConfirmedCases.diff().fillna(0)
@@ -231,6 +231,7 @@ class RandomForestPredictor:
 class ProphetPredictor:
     def __init__(self):
         m = Prophet(growth='logistic', weekly_seasonality=False)
+        m.add_regressor()
         m.add_seasonality(name='halfly', period=180, fourier_order=5)
         m.add_country_holidays('US')
         self.model = m
