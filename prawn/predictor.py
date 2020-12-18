@@ -47,6 +47,7 @@ class PrawnPredictor:
         self.y_train_samples = dict()
         self.submission_date = "2020-12-06"
         self.model = None
+        self.df = self.parse_df()
 
     def get_geo_test_samples(self, geo):
         return np.array(self.X_test_samples[geo]), np.array(self.y_test_samples[geo])
@@ -83,10 +84,10 @@ class PrawnPredictor:
         # Fill any missing NPIs by assuming they are the same as previous day
         for npi_col in npi_cols:
             df.update(df.groupby('GeoID')[npi_col].ffill().fillna(0))
-
         return df
 
-    def get_train_test_data(self, df):
+    def get_train_test_data(self):
+        df = self.df
         geo_ids = df.GeoID.unique()
         encoder = preprocessing.LabelEncoder()
         encoder.fit(geo_ids)
@@ -123,6 +124,8 @@ class PrawnPredictor:
             if gdf[gdf['NewCases'] > 0].empty:
                 # 如果该地区历史数据新增病例全为零，则应该剔除该地区，直接跳到下一个地区的循环
                 continue
+            # 剔除新增病例为零的点，因为实测中发现新增病例为零的有可能是没有更新数据
+            # gdf = gdf[gdf['NewCases'] > 100]
 
             initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
             # 距离首次爆发的时间（天数）
@@ -205,12 +208,30 @@ class PrawnPredictor:
 
         return X_train, y_train, X_test, y_test
 
-    def train(self, X_train, y_train):
+    def _train(self, X_train, y_train, X_test, y_test):
         model = RandomForestRegressor(max_depth=15, max_features='sqrt', n_estimators=200, min_samples_leaf=3,
                                       criterion='mse')
         model.fit(X_train, y_train)
         self.model = model
+        # Evaluate model
+        train_preds = model.predict(X_train)
+        train_preds = np.maximum(train_preds, 0)  # Don't predict negative cases
+        print('Train MAE:', mae(train_preds, y_train))
+
+        test_preds = model.predict(X_test)
+        test_preds = np.maximum(test_preds, 0)  # Don't predict negative cases
+        print('Test MAE:', mae(test_preds, y_test))
         return model
+
+    def train(self):
+        X_train, y_train, X_test, y_test = self.get_train_test_data()
+        self._train(X_train, y_train, X_test, y_test)
+
+    def train_geo(self, geo):
+        X_train, y_train = self.get_geo_train_samples(geo)
+        X_test, y_test = self.get_geo_test_samples(geo)
+        self._train(X_train, y_train.ravel(), X_test, y_test.ravel())
+
 
     def test_geo(self, geo):
         X_geo_test, y_geo_test = self.get_geo_test_samples(geo)
@@ -223,29 +244,24 @@ class PrawnPredictor:
 
 if __name__ == '__main__':
     predictor = PrawnPredictor()
-    df = predictor.parse_df()
-    X_train, y_train, X_test, y_test = predictor.get_train_test_data(df)
-    model = predictor.train(X_train, y_train)
-    # Evaluate model
-    train_preds = model.predict(X_train)
-    train_preds = np.maximum(train_preds, 0)  # Don't predict negative cases
-    print('Train MAE:', mae(train_preds, y_train))
-
-    test_preds = model.predict(X_test)
-    test_preds = np.maximum(test_preds, 0)  # Don't predict negative cases
-    print('Test MAE:', mae(test_preds, y_test))
-    X_geo_test, y_geo_test = predictor.get_geo_test_samples('United States__New York')
-    test_preds = model.predict(X_geo_test)
-    test_preds = np.maximum(test_preds, 0)  # Don't predict negative cases
-    print('Test MAE:', mae(test_preds, y_geo_test))
-    test_df = pd.DataFrame({'test_preds': test_preds, 'y_test': y_geo_test.flatten()})
-    test_df.plot()
-    geo_ids = df.GeoID.unique()
-    for geo in geo_ids:
-        try:
-            X_geo_test, y_geo_test = predictor.get_geo_test_samples(geo)
-            test_preds = model.predict(X_geo_test)
-            test_preds = np.maximum(test_preds, 0)
-            print('%s:' % geo, mae(test_preds, y_geo_test))
-        except KeyError:
-            print('%s has no new case' % geo)
+    predictor.get_train_test_data()
+    # predictor.train()
+    # X_geo_test, y_geo_test = predictor.get_geo_test_samples('United States__New York')
+    predictor.train_geo('United States__New York')
+    # test_preds = model.predict(X_geo_test)
+    # test_preds = np.maximum(test_preds, 0)  # Don't predict negative cases
+    # print('Test MAE:', mae(test_preds, y_geo_test))
+    # test_df = pd.DataFrame({'test_preds': test_preds, 'y_test': y_geo_test.flatten()})
+    # geo_ids = predictor.df.GeoID.unique()
+    # for geo in geo_ids:
+    #     try:
+    #         print('%s：' % geo)
+    #         X_geo_test, y_geo_test = predictor.get_geo_test_samples(geo)
+    #         if X_geo_test.size == 0:
+    #             print('%s Test case is 0' % geo)
+    #         else:
+    #             test_preds = model.predict(X_geo_test)
+    #             test_preds = np.maximum(test_preds, 0)
+    #             print(mae(test_preds, y_geo_test))
+    #     except KeyError:
+    #         print('%s has no new case' % geo)
