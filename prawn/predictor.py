@@ -293,7 +293,7 @@ class BaseModel:
     def extract_cases_features(self, gdf, **kwargs):
         raise NotImplemented
 
-    def extract_extra_features(self, gdf):
+    def extract_extra_features(self, gdf, **kwargs):
         pass
 
     def extract_labels(self, gdf, cut_date):
@@ -351,6 +351,24 @@ class TotalModel(BaseModel):
             cases_features.append(X_cases)
         return np.array(cases_features)
 
+    def extract_extra_features(self, gdf, **kwargs):
+        start_date = kwargs.pop('start_date')
+        end_date = kwargs.pop('end_date')
+        geo_encoder = kwargs.pop('geo_encoder')
+        initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
+        start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
+        end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
+        total_num = end_index - start_index + 1
+
+        days_since_initial = (gdf['Date'] - initial_date).apply(
+            lambda x: x / np.timedelta64(1, 'D'))
+
+        days_since_initial = days_since_initial.to_numpy()[start_index:end_index+1]
+        geo_encoded = geo_encoder.transform(gdf['GeoID'].to_list()[0:total_num])
+        extra_features = np.array([geo_encoded,
+                                   days_since_initial]).T
+        return extra_features
+
     def extract_labels(self, gdf: pd.DataFrame, **kwargs):
         start_date = kwargs.pop('start_date')
         end_date = kwargs.pop('end_date')
@@ -362,7 +380,7 @@ class TotalModel(BaseModel):
             y_samples.append(all_case_data[d:d + self.predict_days_once].flatten())
         return y_samples
 
-    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list):
+    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list, geo_encoder):
         start_date = np.datetime64('2020-01-01')
         start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
         for g in unique_geo_ids:
@@ -382,10 +400,19 @@ class TotalModel(BaseModel):
                 end_date=end_date
             )
 
+            extra_features = self.extract_extra_features(
+                gdf,
+                start_date=start_date,
+                end_date=end_date,
+                geo_encoder=geo_encoder
+
+            )
+
             print('Train %s' % g)
             print('NPI: ', npi_features.shape)
             print('Cases:', cases_features.shape)
-            X_sample = np.concatenate([npi_features, cases_features], axis=1)
+            print('Extra:', extra_features.shape)
+            X_sample = np.concatenate([npi_features, cases_features, extra_features], axis=1)
 
             print('X_sample:', X_sample.shape)
             X_samples.append(X_sample)
@@ -393,7 +420,7 @@ class TotalModel(BaseModel):
             y_samples = self.extract_labels(
                 gdf,
                 start_date=start_date,
-                end_date=end_date
+                end_date=end_date,
             )
             print(len(y_samples), len(y_samples[0]))
 
@@ -470,7 +497,7 @@ class FinalPredictor:
 
     def fit_total(self):
         model = self.load_geo_model()
-        model.fit(self.hist_df, self.unique_geo_ids)
+        model.fit(self.hist_df, self.unique_geo_ids, self.geo_id_encoder)
 
     def predict(self):
         # the main api
