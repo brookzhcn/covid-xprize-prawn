@@ -4,6 +4,7 @@ import os
 from sklearn import preprocessing
 from sklearn.ensemble import RandomForestRegressor
 import pickle
+from sklearn.multioutput import MultiOutputRegressor
 
 
 def mae(pred, true):
@@ -380,11 +381,15 @@ class TotalModel(BaseModel):
             y_samples.append(all_case_data[d:d + self.predict_days_once].flatten())
         return y_samples
 
-    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list, geo_encoder):
+    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list, geo_encoder, holdout_num=14):
+        X_train_samples = dict()
+        X_test_samples = dict()
+        y_train_samples = dict()
+        y_test_samples = dict()
+
         start_date = np.datetime64('2020-01-01')
         start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
         for g in unique_geo_ids:
-            X_samples = []
             gdf = hist_df[hist_df.GeoID == g]
             end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once, 'D')
 
@@ -412,10 +417,8 @@ class TotalModel(BaseModel):
             print('NPI: ', npi_features.shape)
             print('Cases:', cases_features.shape)
             print('Extra:', extra_features.shape)
-            X_sample = np.concatenate([npi_features, cases_features, extra_features], axis=1)
-
-            print('X_sample:', X_sample.shape)
-            X_samples.append(X_sample)
+            X_samples = np.concatenate([npi_features, cases_features, extra_features], axis=1)
+            print('X_sample:', X_samples.shape)
 
             y_samples = self.extract_labels(
                 gdf,
@@ -423,6 +426,48 @@ class TotalModel(BaseModel):
                 end_date=end_date,
             )
             print(len(y_samples), len(y_samples[0]))
+            X_train_samples[g] = X_samples[:-holdout_num]
+            X_test_samples[g] = X_samples[-holdout_num:]
+
+            y_train_samples[g] = y_samples[:-holdout_num]
+            y_test_samples[g] = y_samples[-holdout_num:]
+
+        X_train = []
+        y_train = []
+        X_test = []
+        y_test = []
+
+        for geo, val in X_train_samples.items():
+            # if geo.startswith('United States'):
+            X_train.append(val)
+            y_train.append(y_train_samples[geo])
+
+        for geo, val in X_test_samples.items():
+            X_test.append(val)
+            y_test.append(y_test_samples[geo])
+
+        X_train = np.concatenate(X_train)
+        y_train = np.concatenate(y_train)
+
+        X_test = np.concatenate(X_test)
+        y_test = np.concatenate(y_test)
+        print('X_train: ', X_train.shape)
+        print('y_train:',  y_train.shape)
+
+        model = RandomForestRegressor(max_depth=15, max_features='sqrt', n_estimators=200, min_samples_leaf=3,
+                                      criterion='mse')
+        model = MultiOutputRegressor(model)
+        model.fit(X_train, y_train)
+        # Evaluate model
+        train_preds = model.predict(X_train)
+        train_preds = np.maximum(train_preds, 0)  # Don't predict negative cases
+        print('Train MAE:', mae(train_preds, y_train))
+
+        test_preds = model.predict(X_test)
+        test_preds = np.maximum(test_preds, 0)  # Don't predict negative cases
+        print('Test MAE:', mae(test_preds, y_test))
+
+
 
 
 GEO_MODEL_CONFIG = {
