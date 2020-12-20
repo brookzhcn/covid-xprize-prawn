@@ -23,7 +23,6 @@ TOTAL_MODEL_FILE = os.path.join(ROOT_DIR, "models", "model.pkl")
 ID_COLS = ['CountryName',
            'RegionName',
            'GeoID',
-           'GeoIDEncoded',
            'Date']
 CASES_COL = ['NewCases']
 NPI_COLS = ['C1_School closing',
@@ -306,8 +305,8 @@ class BaseModel:
         preds = self.model.predict(X)
         return np.maximum(preds, 0)
 
-    # def fit(self, hist_cases_df: pd.DataFrame, unique_geo_ids: list):
-    #     pass
+    def fit(self, *args, **kwargs):
+        pass
 
 
 class TotalModel(BaseModel):
@@ -358,15 +357,17 @@ class TotalModel(BaseModel):
         end_date = kwargs.pop('end_date')
         geo_encoder = kwargs.pop('geo_encoder')
         initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
-        start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
-        end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
-        total_num = end_index - start_index + 1
-
-        days_since_initial = (gdf['Date'] - initial_date).apply(
-            lambda x: x / np.timedelta64(1, 'D'))
-
-        days_since_initial = days_since_initial.to_numpy()[start_index:end_index+1]
-        geo_encoded = geo_encoder.transform(gdf['GeoID'].to_list()[0:total_num])
+        # start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
+        # end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
+        # days_since_initial = (gdf['Date'] - initial_date).apply(
+        #     lambda x: x / np.timedelta64(1, 'D'))
+        days_since_initial = []
+        for d in pd.date_range(start_date, end_date, freq='1D'):
+            days = (d-initial_date) / np.timedelta64(1, 'D')
+            days = max(days, 0)
+            days_since_initial.append(days)
+        g = gdf['GeoID'].to_list()[0]
+        geo_encoded = geo_encoder.transform([g]*len(days_since_initial))
         extra_features = np.array([geo_encoded,
                                    days_since_initial]).T
         return extra_features
@@ -521,7 +522,7 @@ class FinalPredictor:
 
         encoder = preprocessing.LabelEncoder()
         self.geo_id_encoder = encoder.fit(hist_df.GeoID.unique())
-        hist_df['GeoIDEncoded'] = self.geo_id_encoder.transform(np.array(hist_df['GeoID']))
+        # hist_df['GeoIDEncoded'] = self.geo_id_encoder.transform(np.array(hist_df['GeoID']))
         hist_df = hist_df[ID_COLS + CASES_COL + NPI_COLS]
         # Keep only the id and cases columns
         hist_cases_df = hist_df[ID_COLS + CASES_COL]
@@ -600,6 +601,33 @@ class FinalPredictor:
         npis_features = model.extract_npis_features(hist_ips_gdf,
                                                     start_date=self.start_date,
                                                     end_date=self.end_date)
+
+        npi_features = model.extract_npis_features(
+            hist_ips_gdf,
+            start_date=self.start_date,
+            end_date=self.end_date
+        )
+
+        # cases_features = model.extract_cases_features(
+        #     self.hist_df,
+        #     start_date=self.start_date,
+        #     end_date=self.end_date
+        # )
+
+        extra_features = model.extract_extra_features(
+            self.hist_df,
+            start_date=self.start_date,
+            end_date=self.end_date,
+            geo_encoder=self.geo_id_encoder
+
+        )
+
+        print('Train %s' % g)
+        print('NPI: ', npi_features.shape)
+        # print('Cases:', cases_features.shape)
+        print('Extra:', extra_features.shape)
+        # X_samples = np.concatenate([npi_features, cases_features, extra_features], axis=1)
+        # print('X_sample:', X_samples.shape)
 
         print(npis_features.shape)
         print(npis_features)
