@@ -287,7 +287,7 @@ class BaseModel:
         self.predict_days_once = predict_days_once
         self.nb_lookback_days = nb_lookback_days
 
-    def extract_npis_features(self, npis: pd.DataFrame, **kwargs):
+    def extract_npis_features(self, past_npis: pd.DataFrame, future_npis: pd.DataFrame, **kwargs):
         raise NotImplemented
 
     def extract_cases_features(self, past_cases_df, **kwargs):
@@ -304,34 +304,67 @@ class BaseModel:
         preds = self.model.predict(X)
         return np.maximum(preds, 0)
 
-    def fit(self):
-        pass
+    # def fit(self, hist_cases_df: pd.DataFrame, unique_geo_ids: list):
+    #     pass
 
 
 class TotalModel(BaseModel):
-    def extract_npis_features(self, npis: pd.DataFrame, **kwargs):
+    def extract_npis_features(self, gdf: pd.DataFrame, **kwargs):
+        num_split = 3
         npis_features = []
-        window_sizes = [21, 14, 7, 3]
         start_date = kwargs.pop('start_date')
         end_date = kwargs.pop('end_date')
-        npis_features_by_date = []
-        for window_size in window_sizes:
-            X_npis_mean = npis.rolling(window_size, min_periods=1).mean()
-            X_npis_min = npis.rolling(window_size, min_periods=1).min()
-            X_npis_max = npis.rolling(window_size, min_periods=1).max()
-            npis_features.append([X_npis_mean, X_npis_min, X_npis_max])
-        for d in pd.date_range(start_date, end_date, freq='D'):
-            # the npis feature of specific date
-            d_feature = []
-            for win_feature in npis_features:
-                for f in win_feature:
-                    d_feature += f.loc[d][NPI_COLS].to_list()
-            npis_features_by_date.append(d_feature)
-        # the npi of last day
-        return np.array(npis_features_by_date)
+        start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
+        end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
+        # nb_total_days = len(gdf)
+        all_npi_data = np.array(gdf[NPI_COLS])
+
+        for d in range(start_index, end_index+1):
+            d_features = []
+            # the passed npis
+            X_npis = all_npi_data[d - self.nb_lookback_days:d]
+
+            for split in np.split(X_npis, num_split):
+                # print(split)
+                d_features += [split.mean(axis=0), split.max(axis=0), split.min(axis=0)]
+
+            # the future npis
+            future_mean = all_npi_data[d:d + self.predict_days_once].mean(axis=0)
+            future_max = all_npi_data[d:d+self.predict_days_once].max(axis=0)
+            future_min = all_npi_data[d:d+self.predict_days_once].min(axis=0)
+            d_features.append(future_mean)
+            d_features.append(future_max)
+            d_features.append(future_min)
+            npis_features.append(np.concatenate(d_features))
+
+        return np.array(npis_features)
 
     def extract_cases_features(self, past_cases_df, **kwargs):
         return past_cases_df
+
+    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list):
+        start_date = np.datetime64('2020-01-01')
+        start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
+        for g in unique_geo_ids:
+            X_samples = []
+            y_samples = []
+            gdf = hist_df[hist_df.GeoID == g]
+            end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once, 'D')
+
+            npi_features = self.extract_npis_features(
+                gdf,
+                start_date=start_date,
+                end_date=end_date
+            )
+            X_sample = np.concatenate([npi_features])
+            X_samples.append(X_sample)
+            print('Train %s' % g)
+            print(npi_features.shape)
+            all_case_data = np.array(gdf[CASES_COL])
+            for d in range(self.nb_lookback_days, self.nb_lookback_days-self.predict_days_once+1):
+                y_sample = all_case_data[d: d + self.predict_days_once].flatten()
+                y_samples.append(y_sample)
+
 
 
 GEO_MODEL_CONFIG = {
@@ -360,25 +393,30 @@ class FinalPredictor:
         # Load historical data to use in making predictions in the same way
         # This is the data we trained on
         # We stored it locally as for predictions there will be no access to the internet
-        hist_cases_df = pd.read_csv(DATA_FILE,
-                                    parse_dates=['Date'],
-                                    encoding="ISO-8859-1",
-                                    dtype={"RegionName": str,
-                                           "CountryName": str},
-                                    error_bad_lines=False)
+        hist_df = pd.read_csv(DATA_FILE,
+                              parse_dates=['Date'],
+                              encoding="ISO-8859-1",
+                              dtype={"RegionName": str,
+                                     "CountryName": str},
+                              error_bad_lines=False)
         # Add RegionID column that combines CountryName and RegionName for easier manipulation of data
-        hist_cases_df['GeoID'] = hist_cases_df['CountryName'] + '__' + hist_cases_df['RegionName'].astype(str)
+        hist_df['GeoID'] = hist_df['CountryName'] + '__' + hist_df['RegionName'].astype(str)
         # Add new cases column
-        hist_cases_df['NewCases'] = hist_cases_df.groupby('GeoID').ConfirmedCases.diff().fillna(0)
+        hist_df['NewCases'] = hist_df.groupby('GeoID').ConfirmedCases.diff().fillna(0)
         # Fill any missing case values by interpolation and setting NaNs to 0
-        hist_cases_df.update(hist_cases_df.groupby('GeoID').NewCases.apply(
+        hist_df.update(hist_df.groupby('GeoID').NewCases.apply(
             lambda group: group.interpolate()).fillna(0))
 
+        # Fill any missing NPIs by assuming they are the same as previous day
+        for npi_col in NPI_COLS:
+            hist_df.update(hist_df.groupby(['CountryName', 'RegionName'])[npi_col].ffill().fillna(0))
+
         encoder = preprocessing.LabelEncoder()
-        self.geo_id_encoder = encoder.fit(hist_cases_df.GeoID.unique())
-        hist_cases_df['GeoIDEncoded'] = self.geo_id_encoder.transform(np.array(hist_cases_df['GeoID']))
+        self.geo_id_encoder = encoder.fit(hist_df.GeoID.unique())
+        hist_df['GeoIDEncoded'] = self.geo_id_encoder.transform(np.array(hist_df['GeoID']))
+        hist_df = hist_df[ID_COLS+CASES_COL+NPI_COLS]
         # Keep only the id and cases columns
-        hist_cases_df = hist_cases_df[ID_COLS + CASES_COL]
+        hist_cases_df = hist_df[ID_COLS + CASES_COL]
 
         hist_ips_df['GeoIDEncoded'] = self.geo_id_encoder.transform(np.array(hist_ips_df['GeoID']))
         self.hist_ips_df = hist_ips_df
@@ -387,6 +425,7 @@ class FinalPredictor:
         self.ips_df = hist_ips_df[(hist_ips_df.Date >= self.start_date) & (hist_ips_df.Date <= self.end_date)]
 
         self.hist_cases_df = hist_cases_df
+        self.hist_df = hist_df
 
         # include all the
         region_df = pd.read_csv(REGIONS_FILE, dtype={"CountryName": str, "RegionName": str},
@@ -397,6 +436,10 @@ class FinalPredictor:
         self.unique_geo_ids = region_df['GeoID'].unique()
 
         self.verbose = verbose
+
+    def fit_total(self):
+        model = self.load_geo_model()
+        model.fit(self.hist_df, self.unique_geo_ids)
 
     def predict(self):
         # the main api
@@ -446,9 +489,12 @@ class FinalPredictor:
 
         model = self.load_geo_model(g)
 
-        npis_features = model.extract_npis_features(past_npis, start_date=self.start_date, end_date=self.end_date)
+        npis_features = model.extract_npis_features(hist_ips_gdf,
+                                                    start_date=self.start_date,
+                                                    end_date=self.end_date)
 
         print(npis_features.shape)
+        print(npis_features)
         return
         days_ahead = 0
         while current_date <= self.end_date:

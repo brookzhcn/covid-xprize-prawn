@@ -44,6 +44,9 @@ class TestPredict(unittest.TestCase):
     def test_extract_npis_feature(self):
         self.predictor.predict()
 
+    def test_fit_total(self):
+        self.predictor.fit_total()
+
 
 if __name__ == '__main__':
     suite = unittest.TestSuite()
