@@ -319,7 +319,7 @@ class TotalModel(BaseModel):
         # nb_total_days = len(gdf)
         all_npi_data = np.array(gdf[NPI_COLS])
 
-        for d in range(start_index, end_index+1):
+        for d in range(start_index, end_index + 1):
             d_features = []
             # the passed npis
             X_npis = all_npi_data[d - self.nb_lookback_days:d]
@@ -330,8 +330,8 @@ class TotalModel(BaseModel):
 
             # the future npis
             future_mean = all_npi_data[d:d + self.predict_days_once].mean(axis=0)
-            future_max = all_npi_data[d:d+self.predict_days_once].max(axis=0)
-            future_min = all_npi_data[d:d+self.predict_days_once].min(axis=0)
+            future_max = all_npi_data[d:d + self.predict_days_once].max(axis=0)
+            future_min = all_npi_data[d:d + self.predict_days_once].min(axis=0)
             d_features.append(future_mean)
             d_features.append(future_max)
             d_features.append(future_min)
@@ -341,6 +341,17 @@ class TotalModel(BaseModel):
 
     def extract_cases_features(self, past_cases_df, **kwargs):
         return past_cases_df
+
+    def extract_labels(self, gdf: pd.DataFrame, **kwargs):
+        start_date = kwargs.pop('start_date')
+        end_date = kwargs.pop('end_date')
+        start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
+        end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
+        all_case_data = np.array(gdf[CASES_COL])
+        y_samples = []
+        for d in range(start_index, end_index + 1):
+            y_samples.append(all_case_data[d:d + self.predict_days_once].flatten())
+        return y_samples
 
     def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list):
         start_date = np.datetime64('2020-01-01')
@@ -360,11 +371,13 @@ class TotalModel(BaseModel):
             X_samples.append(X_sample)
             print('Train %s' % g)
             print(npi_features.shape)
-            all_case_data = np.array(gdf[CASES_COL])
-            for d in range(self.nb_lookback_days, self.nb_lookback_days-self.predict_days_once+1):
-                y_sample = all_case_data[d: d + self.predict_days_once].flatten()
-                y_samples.append(y_sample)
 
+            y_samples = self.extract_labels(
+                gdf,
+                start_date=start_date,
+                end_date=end_date
+            )
+            print(len(y_samples), len(y_samples[0]))
 
 
 GEO_MODEL_CONFIG = {
@@ -414,7 +427,7 @@ class FinalPredictor:
         encoder = preprocessing.LabelEncoder()
         self.geo_id_encoder = encoder.fit(hist_df.GeoID.unique())
         hist_df['GeoIDEncoded'] = self.geo_id_encoder.transform(np.array(hist_df['GeoID']))
-        hist_df = hist_df[ID_COLS+CASES_COL+NPI_COLS]
+        hist_df = hist_df[ID_COLS + CASES_COL + NPI_COLS]
         # Keep only the id and cases columns
         hist_cases_df = hist_df[ID_COLS + CASES_COL]
 
