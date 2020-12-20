@@ -1,6 +1,7 @@
 from prawn.predict import predict
 import unittest
 import os
+from prawn.predictor import FinalPredictor
 
 DATA_PATH = os.path.join(os.path.dirname(__file__), 'data')
 OUTPUT_PATH = os.path.join(os.path.dirname(__file__), 'output')
@@ -31,24 +32,17 @@ class TestPredict(unittest.TestCase):
         print("this tearDownClass() method only called once too.\n")
 
     def setUp(self) -> None:
+        self.predictor = FinalPredictor(start_date_str='2020-12-01', end_date_str='2020-12-31',
+                                        path_to_ips_file=os.path.join(DATA_PATH, 'future_ip.csv'),
+                                        verbose=True)
+
         print('set up test for predict API\n')
 
     def tearDown(self) -> None:
         print('exit test\n')
 
-    def test_predict_month_oct(self):
-        start_date = '2020-10-1'
-        end_date = '2020-10-31'
-        ip_file = 'ip_file1.csv'
-        status = predict_wrapper(start_date, end_date, ip_file)
-        self.assertTrue(status)
-
-    def test_predict_month_sep(self):
-        start_date = '2020-9-1'
-        end_date = '2020-9-30'
-        ip_file = 'ip_file2.csv'
-        status = predict_wrapper(start_date, end_date, ip_file)
-        self.assertTrue(status)
+    def test_extract_npis_feature(self):
+        self.predictor.predict()
 
 
 if __name__ == '__main__':
