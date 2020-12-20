@@ -278,15 +278,16 @@ class PrawnPredictor:
 
 class BaseModel:
     def __init__(self, model_file=None, predict_days_once=7, nb_lookback_days=21):
-        if model_file is not None:
-            with open(model_file, 'rb') as model_file:
-                model = pickle.load(model_file)
-                self.model = model
-        else:
-            self.model = None
+        self.model = None
+        self.model_file = model_file
         # predict days_ahead new cases once a time
         self.predict_days_once = predict_days_once
         self.nb_lookback_days = nb_lookback_days
+
+    def load_model(self):
+        with open(self.model_file, 'rb') as model_file:
+            model = pickle.load(model_file)
+            self.model = model
 
     def extract_npis_features(self, past_npis: pd.DataFrame, future_npis: pd.DataFrame, **kwargs):
         raise NotImplemented
@@ -454,9 +455,9 @@ class TotalModel(BaseModel):
         print('X_train: ', X_train.shape)
         print('y_train:',  y_train.shape)
 
-        model = RandomForestRegressor(max_depth=15, max_features='sqrt', n_estimators=200, min_samples_leaf=3,
-                                      criterion='mse')
-        model = MultiOutputRegressor(model)
+        model = RandomForestRegressor(max_depth=15, max_features='sqrt', n_estimators=200, min_samples_leaf=2,
+                                      criterion='mse', random_state=301)
+        # model = MultiOutputRegressor(model)
         model.fit(X_train, y_train)
         # Evaluate model
         train_preds = model.predict(X_train)
@@ -466,6 +467,10 @@ class TotalModel(BaseModel):
         test_preds = model.predict(X_test)
         test_preds = np.maximum(test_preds, 0)  # Don't predict negative cases
         print('Test MAE:', mae(test_preds, y_test))
+
+        with open('models/model.pkl', 'wb') as model_file:
+            pickle.dump(model, model_file)
+
 
 
 
