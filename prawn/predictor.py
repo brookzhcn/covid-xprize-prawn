@@ -3,6 +3,7 @@ import pandas as pd
 import os
 from sklearn import preprocessing
 from sklearn.ensemble import RandomForestRegressor
+import pickle
 
 
 def mae(pred, true):
@@ -10,7 +11,39 @@ def mae(pred, true):
 
 
 def error_percent(pred, true):
-    return np.mean(np.abs(pred - true)/true)
+    return np.mean(np.abs(pred - true) / true)
+
+
+NB_LOOKBACK_DAYS = 30
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_FILE = os.path.join(ROOT_DIR, 'data', "OxCGRT_latest.csv")
+REGIONS_FILE = os.path.join(ROOT_DIR, 'data', "countries_regions.csv")
+TOTAL_MODEL_FILE = os.path.join(ROOT_DIR, "models", "model.pkl")
+ID_COLS = ['CountryName',
+           'RegionName',
+           'GeoID',
+           'GeoIDEncoded',
+           'Date']
+CASES_COL = ['NewCases']
+NPI_COLS = ['C1_School closing',
+            'C2_Workplace closing',
+            'C3_Cancel public events',
+            'C4_Restrictions on gatherings',
+            'C5_Close public transport',
+            'C6_Stay at home requirements',
+            'C7_Restrictions on internal movement',
+            'C8_International travel controls',
+            'E1_Income support',
+            'E2_Debt/contract relief',
+            'E3_Fiscal measures',
+            'E4_International support',
+            'H1_Public information campaigns',
+            'H2_Testing policy',
+            'H3_Contact tracing',
+            'H4_Emergency investment in healthcare',
+            'H5_Investment in vaccines',
+            'H6_Facial Coverings',
+            'H7_Vaccination policy']
 
 
 class PrawnPredictor:
@@ -232,7 +265,6 @@ class PrawnPredictor:
         X_test, y_test = self.get_geo_test_samples(geo)
         self._train(X_train, y_train.ravel(), X_test, y_test.ravel())
 
-
     def test_geo(self, geo):
         X_geo_test, y_geo_test = self.get_geo_test_samples(geo)
         test_preds = self.model.predict(X_geo_test)
@@ -240,6 +272,190 @@ class PrawnPredictor:
         print('Test MAE:', mae(test_preds, y_geo_test))
         test_df = pd.DataFrame({'test_preds': test_preds, 'y_test': y_geo_test.flatten()})
         print(test_df)
+
+
+class BaseModel:
+    def __init__(self, model_file=None, predict_days_once=7, nb_lookback_days=21):
+        if model_file is not None:
+            with open(model_file, 'rb') as model_file:
+                model = pickle.load(model_file)
+                self.model = model
+        else:
+            self.model = None
+        # predict days_ahead new cases once a time
+        self.predict_days_once = predict_days_once
+        self.nb_lookback_days = nb_lookback_days
+
+    def extract_npis_features(self, past_ips_df, **kwargs):
+        raise NotImplemented
+
+    def extract_cases_features(self, past_cases_df, **kwargs):
+        raise NotImplemented
+
+    def extract_extra_features(self, gdf):
+        pass
+
+    def extract_labels(self, gdf, cut_date):
+        # used in train step
+        return np.array(gdf[gdf['Date'] >= cut_date][CASES_COL])[:self.predict_days_once]
+
+    def predict(self, X):
+        preds = self.model.predict(X)
+        return np.maximum(preds, 0)
+
+    def fit(self):
+        pass
+
+
+class TotalModel(BaseModel):
+    def extract_npis_features(self, past_ips_df, **kwargs):
+        npis_features = []
+        step = 7
+        for start in range(0, self.nb_lookback_days, step=step):
+            end = min(start+step, self.nb_lookback_days)
+            X_npis_mean = np.mean(-past_ips_df[start:end], axis=0)
+            X_npis_min = np.min(-past_ips_df[start:end], axis=0)
+            npis_features.append(X_npis_min)
+            npis_features.append(X_npis_mean)
+        # the npi of last day
+        npis_features.append(past_ips_df[-1])
+        return npis_features
+
+    def extract_cases_features(self, past_cases_df, **kwargs):
+        return past_cases_df
+
+
+GEO_MODEL_CONFIG = {
+
+}
+
+
+class FinalPredictor:
+    def __init__(self, start_date_str: str, end_date_str: str, path_to_ips_file: str, verbose=False):
+        self.start_date = pd.to_datetime(start_date_str, format='%Y-%m-%d')
+        self.end_date = pd.to_datetime(end_date_str, format='%Y-%m-%d')
+
+        # Load historical intervention plans, since inception
+        hist_ips_df = pd.read_csv(path_to_ips_file,
+                                  parse_dates=['Date'],
+                                  encoding="ISO-8859-1",
+                                  dtype={"RegionName": str},
+                                  error_bad_lines=True)
+
+        hist_ips_df['GeoID'] = hist_ips_df['CountryName'] + '__' + hist_ips_df['RegionName'].astype(str)
+
+        # Fill any missing NPIs by assuming they are the same as previous day
+        for npi_col in NPI_COLS:
+            hist_ips_df.update(hist_ips_df.groupby(['CountryName', 'RegionName'])[npi_col].ffill().fillna(0))
+
+        # Load historical data to use in making predictions in the same way
+        # This is the data we trained on
+        # We stored it locally as for predictions there will be no access to the internet
+        hist_cases_df = pd.read_csv(DATA_FILE,
+                                    parse_dates=['Date'],
+                                    encoding="ISO-8859-1",
+                                    dtype={"RegionName": str,
+                                           "CountryName": str},
+                                    error_bad_lines=False)
+        # Add RegionID column that combines CountryName and RegionName for easier manipulation of data
+        hist_cases_df['GeoID'] = hist_cases_df['CountryName'] + '__' + hist_cases_df['RegionName'].astype(str)
+        # Add new cases column
+        hist_cases_df['NewCases'] = hist_cases_df.groupby('GeoID').ConfirmedCases.diff().fillna(0)
+        # Fill any missing case values by interpolation and setting NaNs to 0
+        hist_cases_df.update(hist_cases_df.groupby('GeoID').NewCases.apply(
+            lambda group: group.interpolate()).fillna(0))
+
+        encoder = preprocessing.LabelEncoder()
+        self.geo_id_encoder = encoder.fit(self.hist_cases_df.GeoID.unique())
+        hist_cases_df['GeoIDEncoded'] = self.geo_id_encoder.transform(np.array(hist_cases_df['GeoID']))
+        # Keep only the id and cases columns
+        hist_cases_df = hist_cases_df[ID_COLS + CASES_COL]
+
+        hist_ips_df['GeoIDEncoded'] = self.geo_id_encoder.transform(np.array(hist_ips_df['GeoID']))
+        self.hist_ips_df = hist_ips_df
+
+        # Intervention plans to forecast for: those between start_date and end_date
+        self.ips_df = hist_ips_df[(hist_ips_df.Date >= self.start_date) & (hist_ips_df.Date <= self.end_date)]
+
+        self.hist_cases_df = hist_cases_df
+
+        # include all the
+        region_df = pd.read_csv(REGIONS_FILE, dtype={"CountryName": str, "RegionName": str},
+                                error_bad_lines=False)
+
+        region_df['GeoID'] = region_df['CountryName'] + '__' + region_df['RegionName'].astype(str)
+        # only include the regions we care about
+        self.unique_geo_ids = region_df
+
+        self.verbose = verbose
+
+    def predict(self):
+        # the main api
+        for g in self.ips_df.GeoID.unique():
+            if self.verbose:
+                print('\nPredicting for', g)
+            self.predict_geo(g)
+
+    def predict_geo(self, g):
+        # Make predictions for each country,region pair
+        geo_preds = []
+        geo_pred_dfs = []
+        hist_cases_df = self.hist_cases_df
+        ips_df = self.ips_df
+        # Pull out all relevant data for country c
+        hist_cases_gdf = hist_cases_df[hist_cases_df.GeoID == g]
+
+        initial_date = hist_cases_df[hist_cases_df['NewCases'] > 0]['Date'].iloc[0]
+        # days since initial break
+        hist_cases_gdf['days_since_initial'] = (hist_cases_gdf['Date'] - initial_date).apply(
+            lambda x: x / np.timedelta64(1, 'D'))
+
+        last_known_date = hist_cases_gdf.Date.max()
+        ips_gdf = ips_df[ips_df.GeoID == g]
+        past_cases = np.array(hist_cases_gdf[CASES_COL])
+        past_npis = np.array(self.hist_ips_df[NPI_COLS])
+        future_npis = np.array(ips_gdf[NPI_COLS])
+
+        # Make prediction for each several days
+
+        # Start predicting from start_date, unless there's a gap since last known date
+        current_date = min(last_known_date + np.timedelta64(1, 'D'), self.start_date)
+
+        model = self.load_geo_model(g)
+        days_ahead = 0
+        while current_date <= self.end_date:
+            next_date = current_date + np.timedelta64(model.predict_days_once, 'D')
+            case_features = model.extract_cases_features(past_npis, start_date=current_date, end_date=next_date)
+            npis_features = model.extract_npis_features(past_cases, start_date=current_date, end_date=next_date)
+
+            X = np.concatenate([case_features.flatten(),
+                                npis_features.flatten()])
+            pred = model.predict(X)
+
+            # Add if it's a requested date
+            if current_date >= self.start_date:
+                geo_preds.append(pred)
+                if self.verbose:
+                    print(f"{current_date.strftime('%Y-%m-%d')}: {pred}")
+            else:
+                if self.verbose:
+                    print(f"{current_date.strftime('%Y-%m-%d')}: {pred} - Skipped (intermediate missing daily cases)")
+
+            # Append the prediction and npi's for next day
+            # in order to rollout predictions for further days.
+            past_cases = np.append(past_cases, pred)
+            past_npis = np.append(past_npis, future_npis[days_ahead:days_ahead + model.predict_days_once], axis=0)
+            days_ahead += model.predict_days_once
+            # move on to next cycle
+            current_date = next_date
+
+    @staticmethod
+    def load_geo_model(geo=None) -> BaseModel:
+        if geo is None or geo not in GEO_MODEL_CONFIG:
+            model = TotalModel(model_file=TOTAL_MODEL_FILE)
+            return model
+        else:
+            return GEO_MODEL_CONFIG[geo]
 
 
 if __name__ == '__main__':
