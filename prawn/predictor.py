@@ -290,7 +290,7 @@ class BaseModel:
     def extract_npis_features(self, past_npis: pd.DataFrame, future_npis: pd.DataFrame, **kwargs):
         raise NotImplemented
 
-    def extract_cases_features(self, past_cases_df, **kwargs):
+    def extract_cases_features(self, gdf, **kwargs):
         raise NotImplemented
 
     def extract_extra_features(self, gdf):
@@ -339,8 +339,17 @@ class TotalModel(BaseModel):
 
         return np.array(npis_features)
 
-    def extract_cases_features(self, past_cases_df, **kwargs):
-        return past_cases_df
+    def extract_cases_features(self, gdf, **kwargs):
+        all_case_data = np.array(gdf[CASES_COL])
+        start_date = kwargs.pop('start_date')
+        end_date = kwargs.pop('end_date')
+        start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
+        end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
+        cases_features = []
+        for d in range(start_index, end_index + 1):
+            X_cases = all_case_data[start_index - self.nb_lookback_days:start_index].flatten()
+            cases_features.append(X_cases)
+        return np.array(cases_features)
 
     def extract_labels(self, gdf: pd.DataFrame, **kwargs):
         start_date = kwargs.pop('start_date')
@@ -358,7 +367,6 @@ class TotalModel(BaseModel):
         start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
         for g in unique_geo_ids:
             X_samples = []
-            y_samples = []
             gdf = hist_df[hist_df.GeoID == g]
             end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once, 'D')
 
@@ -367,10 +375,20 @@ class TotalModel(BaseModel):
                 start_date=start_date,
                 end_date=end_date
             )
-            X_sample = np.concatenate([npi_features])
-            X_samples.append(X_sample)
+
+            cases_features = self.extract_cases_features(
+                gdf,
+                start_date=start_date,
+                end_date=end_date
+            )
+
             print('Train %s' % g)
-            print(npi_features.shape)
+            print('NPI: ', npi_features.shape)
+            print('Cases:', cases_features.shape)
+            X_sample = np.concatenate([npi_features, cases_features], axis=1)
+
+            print('X_sample:', X_sample.shape)
+            X_samples.append(X_sample)
 
             y_samples = self.extract_labels(
                 gdf,
