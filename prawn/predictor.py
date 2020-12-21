@@ -120,12 +120,14 @@ class TotalModel(BaseModel):
         if start_date is None:
             start_index = gdf.index[-1]
         else:
-            start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
+            start_index = gdf[gdf['Date'] == start_date].index[0]
         cases_features = []
         case_lookback_days = 14
         for d in range(days_forward):
             X_cases = gdf.loc[start_index - case_lookback_days + 1:start_index, 'NewCases'].to_numpy()
             cases_features.append(X_cases)
+            # move to next
+            start_index += 1
         return np.array(cases_features)
 
     def extract_extra_features(self, gdf, **kwargs):
