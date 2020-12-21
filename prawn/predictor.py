@@ -347,8 +347,9 @@ class TotalModel(BaseModel):
         start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
         end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
         cases_features = []
+        case_lookback_days = 14
         for d in range(start_index, end_index + 1):
-            X_cases = all_case_data[start_index - self.nb_lookback_days:start_index].flatten()
+            X_cases = all_case_data[start_index - case_lookback_days:start_index].flatten()
             cases_features.append(X_cases)
         return np.array(cases_features)
 
@@ -387,7 +388,7 @@ class TotalModel(BaseModel):
         y_train_samples = dict()
         y_test_samples = dict()
         # the start date can strongly affect the final result
-        start_date = np.datetime64('2020-04-01')
+        start_date = np.datetime64('2020-03-21')
         # start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
         for g in unique_geo_ids:
             gdf = hist_df[hist_df.GeoID == g]
