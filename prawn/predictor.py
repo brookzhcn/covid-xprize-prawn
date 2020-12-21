@@ -386,9 +386,9 @@ class TotalModel(BaseModel):
         X_test_samples = dict()
         y_train_samples = dict()
         y_test_samples = dict()
-
-        start_date = np.datetime64('2020-01-01')
-        start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
+        # the start date can strongly affect the final result
+        start_date = np.datetime64('2020-04-01')
+        # start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
         for g in unique_geo_ids:
             gdf = hist_df[hist_df.GeoID == g]
             end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once, 'D')
