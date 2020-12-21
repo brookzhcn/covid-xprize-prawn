@@ -41,7 +41,7 @@ class TestPredict(unittest.TestCase):
     def tearDown(self) -> None:
         print('exit test\n')
 
-    def test_extract_npis_feature(self):
+    def test_predict(self):
         self.predictor.predict()
 
     def test_fit_total(self):

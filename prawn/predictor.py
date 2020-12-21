@@ -288,14 +288,14 @@ class BaseModel:
             model = pickle.load(model_file)
             self.model = model
 
-    def extract_npis_features(self, past_npis: pd.DataFrame, future_npis: pd.DataFrame, **kwargs):
+    def extract_npis_features(self, *args, **kwargs):
         raise NotImplemented
 
     def extract_cases_features(self, gdf, **kwargs):
         raise NotImplemented
 
     def extract_extra_features(self, gdf, **kwargs):
-        pass
+        raise NotImplemented
 
     def extract_labels(self, gdf, cut_date):
         # used in train step
@@ -360,13 +360,13 @@ class TotalModel(BaseModel):
         initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
         weeks_since_initial = []
         for d in pd.date_range(start_date, end_date, freq='1D'):
-            days = (d-initial_date) / np.timedelta64(1, 'D')
-            weeks = days//7 + 1
+            days = (d - initial_date) / np.timedelta64(1, 'D')
+            weeks = days // 7 + 1
             cap = 50
             weeks = min(max(weeks, 0), cap)
             weeks_since_initial.append(weeks)
         g = gdf['GeoID'].to_list()[0]
-        geo_encoded = geo_encoder.transform([g]*len(weeks_since_initial))
+        geo_encoded = geo_encoder.transform([g] * len(weeks_since_initial))
         extra_features = np.array([geo_encoded,
                                    weeks_since_initial]).T
         return extra_features
@@ -453,7 +453,7 @@ class TotalModel(BaseModel):
         X_test = np.concatenate(X_test)
         y_test = np.concatenate(y_test)
         print('X_train: ', X_train.shape)
-        print('y_train:',  y_train.shape)
+        print('y_train:', y_train.shape)
 
         model = RandomForestRegressor(max_depth=15, max_features='sqrt', n_estimators=200, min_samples_leaf=2,
                                       criterion='mse', random_state=301)
@@ -470,9 +470,6 @@ class TotalModel(BaseModel):
 
         with open('models/model.pkl', 'wb') as model_file:
             pickle.dump(model, model_file)
-
-
-
 
 
 GEO_MODEL_CONFIG = {
@@ -564,15 +561,8 @@ class FinalPredictor:
         ips_df = self.ips_df
         # Pull out all relevant data for country c
         hist_cases_gdf = hist_cases_df[hist_cases_df.GeoID == g].copy()
-
-        initial_date = hist_cases_df[hist_cases_df['NewCases'] > 0]['Date'].iloc[0]
-        # days since initial break
-        hist_cases_gdf['days_since_initial'] = (hist_cases_gdf['Date'] - initial_date).apply(
-            lambda x: x / np.timedelta64(1, 'D'))
-
         last_known_date = hist_cases_gdf.Date.max()
         ips_gdf = ips_df[ips_df.GeoID == g]
-        # past_cases = np.array(hist_cases_gdf[CASES_COL])
         past_cases = pd.DataFrame(data=hist_cases_gdf[CASES_COL], index=hist_cases_gdf['Date'].to_list(),
                                   columns=CASES_COL)
         hist_ips_gdf = self.hist_ips_df[self.hist_ips_df.GeoID == g].copy()
@@ -597,49 +587,35 @@ class FinalPredictor:
 
         model = self.load_geo_model(g)
 
-        npis_features = model.extract_npis_features(hist_ips_gdf,
-                                                    start_date=self.start_date,
-                                                    end_date=self.end_date)
-
-        npi_features = model.extract_npis_features(
-            hist_ips_gdf,
-            start_date=self.start_date,
-            end_date=self.end_date
-        )
-
-        # cases_features = model.extract_cases_features(
-        #     self.hist_df,
-        #     start_date=self.start_date,
-        #     end_date=self.end_date
-        # )
-
-        extra_features = model.extract_extra_features(
-            self.hist_df,
-            start_date=self.start_date,
-            end_date=self.end_date,
-            geo_encoder=self.geo_id_encoder
-
-        )
-
+        interval = np.timedelta64(model.predict_days_once-1, 'D')
+        d1 = np.timedelta64(1, 'D')
         print('Train %s' % g)
-        print('NPI: ', npi_features.shape)
-        # print('Cases:', cases_features.shape)
-        print('Extra:', extra_features.shape)
-        # X_samples = np.concatenate([npi_features, cases_features, extra_features], axis=1)
-        # print('X_sample:', X_samples.shape)
 
-        print(npis_features.shape)
-        print(npis_features)
-        return
-        days_ahead = 0
         while current_date <= self.end_date:
-            next_date = current_date + np.timedelta64(model.predict_days_once, 'D')
-            case_features = model.extract_cases_features(past_cases, start_date=current_date, end_date=next_date)
+            next_date = current_date + interval
 
-            X = np.concatenate([case_features.flatten(),
-                                npis_features.flatten()])
+            print(f"date range:{current_date.strftime('%Y-%m-%d')}-{next_date.strftime('%Y-%m-%d')}")
+
+            npi_features = model.extract_npis_features(hist_ips_gdf, start_date=current_date, end_date=current_date+d1)
+
+            extra_features = model.extract_extra_features(
+                self.hist_df,
+                start_date=current_date,
+                end_date=current_date+d1,
+                geo_encoder=self.geo_id_encoder
+            )
+
+            cases_features = model.extract_cases_features(self.hist_df, start_date=current_date,
+                                                          end_date=current_date+d1)
+            print('Train %s' % g)
+            print('NPI: ', npi_features.shape)
+            print('Cases:', cases_features.shape)
+            print('Extra:', extra_features.shape)
+            X = np.concatenate([npi_features, cases_features, extra_features], axis=1)
+            print('X_sample:', X.shape)
             pred = model.predict(X)
-
+            print('pred:', pred.shape, pred)
+            break
             # Add if it's a requested date
             if current_date >= self.start_date:
                 geo_preds.append(pred)
@@ -652,8 +628,8 @@ class FinalPredictor:
             # Append the prediction and npi's for next day
             # in order to rollout predictions for further days.
             past_cases = np.append(past_cases, pred)
-            past_npis = np.append(past_npis, future_npis[days_ahead:days_ahead + model.predict_days_once], axis=0)
-            days_ahead += model.predict_days_once
+            # past_npis = np.append(past_npis, future_npis[days_ahead:days_ahead + model.predict_days_once], axis=0)
+            # days_ahead += model.predict_days_once
             # move on to next cycle
             current_date = next_date
 
@@ -661,6 +637,7 @@ class FinalPredictor:
     def load_geo_model(geo=None) -> BaseModel:
         if geo is None or geo not in GEO_MODEL_CONFIG:
             model = TotalModel(model_file=TOTAL_MODEL_FILE)
+            model.load_model()
             return model
         else:
             return GEO_MODEL_CONFIG[geo]
