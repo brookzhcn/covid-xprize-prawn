@@ -357,19 +357,17 @@ class TotalModel(BaseModel):
         end_date = kwargs.pop('end_date')
         geo_encoder = kwargs.pop('geo_encoder')
         initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
-        # start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
-        # end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
-        # days_since_initial = (gdf['Date'] - initial_date).apply(
-        #     lambda x: x / np.timedelta64(1, 'D'))
-        days_since_initial = []
+        weeks_since_initial = []
         for d in pd.date_range(start_date, end_date, freq='1D'):
             days = (d-initial_date) / np.timedelta64(1, 'D')
-            days = max(days, 0)
-            days_since_initial.append(days)
+            weeks = days//7 + 1
+            cap = 50
+            weeks = min(max(weeks, 0), cap)
+            weeks_since_initial.append(weeks)
         g = gdf['GeoID'].to_list()[0]
-        geo_encoded = geo_encoder.transform([g]*len(days_since_initial))
+        geo_encoded = geo_encoder.transform([g]*len(weeks_since_initial))
         extra_features = np.array([geo_encoded,
-                                   days_since_initial]).T
+                                   weeks_since_initial]).T
         return extra_features
 
     def extract_labels(self, gdf: pd.DataFrame, **kwargs):
