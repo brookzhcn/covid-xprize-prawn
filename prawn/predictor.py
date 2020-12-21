@@ -311,6 +311,7 @@ class BaseModel:
 
 class TotalModel(BaseModel):
     def extract_npis_features(self, gdf: pd.DataFrame, **kwargs):
+        # [start_date, end_date)
         num_split = 3
         npis_features = []
         start_date = kwargs.pop('start_date')
@@ -320,7 +321,7 @@ class TotalModel(BaseModel):
         # nb_total_days = len(gdf)
         all_npi_data = np.array(gdf[NPI_COLS])
 
-        for d in range(start_index, end_index + 1):
+        for d in range(start_index, end_index):
             d_features = []
             # the passed npis
             X_npis = all_npi_data[d - self.nb_lookback_days:d]
@@ -341,6 +342,7 @@ class TotalModel(BaseModel):
         return np.array(npis_features)
 
     def extract_cases_features(self, gdf, **kwargs):
+        # [start_date, end_date)
         all_case_data = np.array(gdf[CASES_COL])
         start_date = kwargs.pop('start_date')
         end_date = kwargs.pop('end_date')
@@ -348,18 +350,19 @@ class TotalModel(BaseModel):
         end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
         cases_features = []
         case_lookback_days = 14
-        for d in range(start_index, end_index + 1):
+        for d in range(start_index, end_index):
             X_cases = all_case_data[start_index - case_lookback_days:start_index].flatten()
             cases_features.append(X_cases)
         return np.array(cases_features)
 
     def extract_extra_features(self, gdf, **kwargs):
+        # [start_date, end_date)
         start_date = kwargs.pop('start_date')
         end_date = kwargs.pop('end_date')
         geo_encoder = kwargs.pop('geo_encoder')
         initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
         weeks_since_initial = []
-        for d in pd.date_range(start_date, end_date, freq='1D'):
+        for d in pd.date_range(start_date, end_date, freq='1D', closed='left'):
             days = (d - initial_date) / np.timedelta64(1, 'D')
             weeks = days // 7 + 1
             cap = 50
@@ -378,7 +381,7 @@ class TotalModel(BaseModel):
         end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
         all_case_data = np.array(gdf[CASES_COL])
         y_samples = []
-        for d in range(start_index, end_index + 1):
+        for d in range(start_index, end_index):
             y_samples.append(all_case_data[d:d + self.predict_days_once].flatten())
         return y_samples
 
@@ -392,7 +395,7 @@ class TotalModel(BaseModel):
         # start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
         for g in unique_geo_ids:
             gdf = hist_df[hist_df.GeoID == g]
-            end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once, 'D')
+            end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once-1, 'D')
 
             npi_features = self.extract_npis_features(
                 gdf,
