@@ -8,6 +8,8 @@ from sklearn import preprocessing
 from sklearn.ensemble import RandomForestRegressor
 import pickle
 from sklearn.multioutput import MultiOutputRegressor
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import fbeta_score, make_scorer
 
 
 def mae(pred, true):
@@ -266,8 +268,20 @@ class TotalModel(BaseModel):
         y_test = np.concatenate(y_test)
         print('X_train: ', X_train.shape)
         print('y_train:', y_train.shape)
-
-        model = RandomForestRegressor(max_depth=20, max_features='sqrt', n_estimators=200, min_samples_leaf=2,
+        # parameters = {
+        #     'max_depth': [15, 20],
+        #     'max_features': [15, 20],
+        #     'n_estimators': [200, 300],
+        #     'min_samples_leaf': [1, 2, 3],
+        # }
+        # score = make_scorer(mae, greater_is_better=False)
+        # model = GridSearchCV(RandomForestRegressor(criterion='mse', random_state=301),
+        #                      parameters,
+        #                      scoring=score,
+        #                      n_jobs=2
+        #                      )
+        # change n_estimators=500
+        model = RandomForestRegressor(max_depth=20, max_features=30, n_estimators=200, min_samples_leaf=1,
                                       criterion='mse', random_state=301)
         # model = MultiOutputRegressor(model)
         model.fit(X_train, y_train)
