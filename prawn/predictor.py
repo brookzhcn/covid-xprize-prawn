@@ -167,7 +167,7 @@ class TotalModel(BaseModel):
         # start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
         for g in unique_geo_ids:
             gdf = hist_df[hist_df.GeoID == g]
-            end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once-1, 'D')
+            end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once - 1, 'D')
 
             npi_features = self.extract_npis_features(
                 gdf,
@@ -332,10 +332,10 @@ class FinalPredictor:
         # Make predictions for each country,region pair
         geo_preds = []
         geo_pred_dfs = []
+
         hist_cases_df = self.hist_cases_df
         # Pull out all relevant data for country c
-        hist_cases_gdf = hist_cases_df[hist_cases_df.GeoID == g].copy()
-
+        hist_cases_gdf = hist_cases_df[hist_cases_df.GeoID == g]
         last_known_date = hist_cases_gdf.Date.max()
         hist_ips_gdf = self.hist_ips_df[self.hist_ips_df.GeoID == g].copy()
         print('last know date', last_known_date)
@@ -351,10 +351,12 @@ class FinalPredictor:
 
         # Start predicting from start_date, unless there's a gap since last known date
         current_date = min(last_known_date + np.timedelta64(1, 'D'), self.start_date)
-
+        hist_cases_gdf = hist_cases_gdf[hist_cases_gdf.Date < current_date][['GeoID', 'Date', 'NewCases']].copy(
+            deep=True)
+        print(hist_cases_gdf)
         model = self.load_geo_model(g)
 
-        interval = np.timedelta64(model.predict_days_once-1, 'D')
+        interval = np.timedelta64(model.predict_days_once - 1, 'D')
         d1 = np.timedelta64(1, 'D')
         print('Train %s' % g)
 
@@ -363,17 +365,18 @@ class FinalPredictor:
 
             print(f"date range:{current_date.strftime('%Y-%m-%d')}-{next_date.strftime('%Y-%m-%d')}")
 
-            npi_features = model.extract_npis_features(hist_ips_gdf, start_date=current_date, end_date=current_date+d1)
+            npi_features = model.extract_npis_features(hist_ips_gdf, start_date=current_date,
+                                                       end_date=current_date + d1)
 
             extra_features = model.extract_extra_features(
                 self.hist_df,
                 start_date=current_date,
-                end_date=current_date+d1,
+                end_date=current_date + d1,
                 geo_encoder=self.geo_id_encoder
             )
 
             cases_features = model.extract_cases_features(self.hist_df, start_date=current_date,
-                                                          end_date=current_date+d1)
+                                                          end_date=current_date + d1)
             print('Train %s' % g)
             print('NPI: ', npi_features.shape)
             print('Cases:', cases_features.shape)
