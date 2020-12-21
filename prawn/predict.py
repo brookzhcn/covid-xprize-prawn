@@ -165,8 +165,12 @@ class TotalModel(BaseModel):
         end_date = kwargs.pop('end_date')
         geo_encoder = kwargs.pop('geo_encoder')
         initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
+        dayofweek = []
+        months = []
         weeks_since_initial = []
         for d in pd.date_range(start_date, end_date, freq='1D', closed='left'):
+            dayofweek.append(d.dayofweek)
+            months.append(d.month)
             days = (d - initial_date) / np.timedelta64(1, 'D')
             weeks = days // 7 + 1
             cap = 50
@@ -175,7 +179,7 @@ class TotalModel(BaseModel):
         g = gdf['GeoID'].to_list()[0]
         geo_encoded = geo_encoder.transform([g] * len(weeks_since_initial))
         extra_features = np.array([geo_encoded,
-                                   weeks_since_initial]).T
+                                   weeks_since_initial, dayofweek, months]).T
         return extra_features
 
     def extract_labels(self, gdf: pd.DataFrame, **kwargs):
@@ -275,7 +279,7 @@ class TotalModel(BaseModel):
         test_preds = model.predict(X_test)
         test_preds = np.maximum(test_preds, 0)  # Don't predict negative cases
         print('Test MAE:', mae(test_preds, y_test))
-
+        print(model.feature_importances_)
         with open('models/model.pkl', 'wb') as model_file:
             pickle.dump(model, model_file)
 
