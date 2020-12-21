@@ -234,7 +234,7 @@ class TotalModel(BaseModel):
         print('X_train: ', X_train.shape)
         print('y_train:', y_train.shape)
 
-        model = RandomForestRegressor(max_depth=15, max_features='sqrt', n_estimators=200, min_samples_leaf=2,
+        model = RandomForestRegressor(max_depth=20, max_features='sqrt', n_estimators=200, min_samples_leaf=2,
                                       criterion='mse', random_state=301)
         # model = MultiOutputRegressor(model)
         model.fit(X_train, y_train)
@@ -393,24 +393,15 @@ class FinalPredictor:
                 'NewCases': pred[0]
             })
             tmp_case_df['GeoID'] = g
-            print(tmp_case_df)
-            break
-            # Add if it's a requested date
-            if current_date >= self.start_date:
-                geo_preds.append(pred)
-                if self.verbose:
-                    print(f"{current_date.strftime('%Y-%m-%d')}: {pred}")
-            else:
-                if self.verbose:
-                    print(f"{current_date.strftime('%Y-%m-%d')}: {pred} - Skipped (intermediate missing daily cases)")
-
-            # Append the prediction and npi's for next day
             # in order to rollout predictions for further days.
-            past_cases = np.append(past_cases, pred)
+            hist_cases_gdf = hist_cases_gdf.append(tmp_case_df, ignore_index=True)
+            # Append the prediction and npi's for next day
             # past_npis = np.append(past_npis, future_npis[days_ahead:days_ahead + model.predict_days_once], axis=0)
             # days_ahead += model.predict_days_once
             # move on to next cycle
             current_date = next_date
+
+        print('Final:\n', hist_cases_gdf.tail(30))
 
     @staticmethod
     def load_geo_model(geo=None) -> BaseModel:
