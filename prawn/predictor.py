@@ -114,16 +114,17 @@ class TotalModel(BaseModel):
         return np.array(npis_features)
 
     def extract_cases_features(self, gdf, **kwargs):
-        # [start_date, end_date)
-        all_case_data = np.array(gdf[CASES_COL])
-        start_date = kwargs.pop('start_date')
-        end_date = kwargs.pop('end_date')
-        start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
-        end_index = gdf[gdf['Date'] == end_date].index[0] - gdf.index[0]
+        # all_case_data = np.array(gdf[CASES_COL])
+        days_forward = kwargs.pop('days_forward')
+        start_date = kwargs.pop('start_date', None)
+        if start_date is None:
+            start_index = gdf.index[-1]
+        else:
+            start_index = gdf[gdf['Date'] == start_date].index[0] - gdf.index[0]
         cases_features = []
         case_lookback_days = 14
-        for d in range(start_index, end_index):
-            X_cases = all_case_data[start_index - case_lookback_days:start_index].flatten()
+        for d in range(days_forward):
+            X_cases = gdf.loc[start_index - case_lookback_days + 1:start_index, 'NewCases'].to_numpy()
             cases_features.append(X_cases)
         return np.array(cases_features)
 
@@ -168,7 +169,8 @@ class TotalModel(BaseModel):
         for g in unique_geo_ids:
             gdf = hist_df[hist_df.GeoID == g]
             end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once - 1, 'D')
-
+            days_forward = (end_date - start_date) // np.timedelta64(1, 'D')
+            print(f'days forward: {days_forward}')
             npi_features = self.extract_npis_features(
                 gdf,
                 start_date=start_date,
@@ -178,7 +180,7 @@ class TotalModel(BaseModel):
             cases_features = self.extract_cases_features(
                 gdf,
                 start_date=start_date,
-                end_date=end_date
+                days_forward=days_forward
             )
 
             extra_features = self.extract_extra_features(
@@ -374,9 +376,8 @@ class FinalPredictor:
                 end_date=current_date + d1,
                 geo_encoder=self.geo_id_encoder
             )
-
-            cases_features = model.extract_cases_features(self.hist_df, start_date=current_date,
-                                                          end_date=current_date + d1)
+            # choose last one
+            cases_features = model.extract_cases_features(hist_cases_gdf, days_forward=1)
             print('Train %s' % g)
             print('NPI: ', npi_features.shape)
             print('Cases:', cases_features.shape)
@@ -385,6 +386,12 @@ class FinalPredictor:
             print('X_sample:', X.shape)
             pred = model.predict(X)
             print('pred:', pred.shape, pred)
+            tmp_case_df = pd.DataFrame({
+                'Date': pd.date_range(current_date, next_date, freq='1D'),
+                'NewCases': pred[0]
+            })
+            tmp_case_df['GeoID'] = g
+            print(tmp_case_df)
             break
             # Add if it's a requested date
             if current_date >= self.start_date:
