@@ -327,10 +327,10 @@ class TotalModel(BaseModel):
 
             for split in np.split(X_npis, num_split):
                 # print(split)
-                d_features += [split.mean(axis=0), split.max(axis=0), split.min(axis=0)]
+                d_features += [np.median(split, axis=0), split.max(axis=0), split.min(axis=0)]
 
             # the future npis
-            future_mean = all_npi_data[d:d + self.predict_days_once].mean(axis=0)
+            future_mean = np.median(all_npi_data[d:d + self.predict_days_once], axis=0)
             future_max = all_npi_data[d:d + self.predict_days_once].max(axis=0)
             future_min = all_npi_data[d:d + self.predict_days_once].min(axis=0)
             d_features.append(future_mean)
