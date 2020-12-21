@@ -326,16 +326,21 @@ class FinalPredictor:
         model.fit(self.hist_df, self.unique_geo_ids, self.geo_id_encoder)
 
     def predict(self):
+        geo_pred_dfs = []
         # the main api
         for g in self.hist_ips_df.GeoID.unique():
             if self.verbose:
                 print('\nPredicting for', g)
-            self.predict_geo(g)
+            geo_pred_df = self.predict_geo(g)
+            geo_pred_dfs.append(geo_pred_df)
+
+        pred_df = pd.concat(geo_pred_dfs, ignore_index=True)
+        if self.verbose:
+            print('pred_df:\n', pred_df)
+        return pred_df
 
     def predict_geo(self, g):
         # Make predictions for each country,region pair
-        geo_preds = []
-        geo_pred_dfs = []
 
         hist_cases_df = self.hist_cases_df
         # Pull out all relevant data for country c
@@ -365,9 +370,9 @@ class FinalPredictor:
         print('Train %s' % g)
 
         while current_date <= self.end_date:
-            next_date = current_date + interval
+            current_end_date = current_date + interval
 
-            print(f"date range:{current_date.strftime('%Y-%m-%d')}-{next_date.strftime('%Y-%m-%d')}")
+            print(f"date range:{current_date.strftime('%Y-%m-%d')}-{current_end_date.strftime('%Y-%m-%d')}")
 
             npi_features = model.extract_npis_features(hist_ips_gdf, start_date=current_date,
                                                        end_date=current_date + d1)
@@ -389,7 +394,7 @@ class FinalPredictor:
             pred = model.predict(X)
             print('pred:', pred.shape, pred)
             tmp_case_df = pd.DataFrame({
-                'Date': pd.date_range(current_date, next_date, freq='1D'),
+                'Date': pd.date_range(current_date, current_end_date, freq='1D'),
                 'NewCases': pred[0]
             })
             tmp_case_df['GeoID'] = g
@@ -399,9 +404,19 @@ class FinalPredictor:
             # past_npis = np.append(past_npis, future_npis[days_ahead:days_ahead + model.predict_days_once], axis=0)
             # days_ahead += model.predict_days_once
             # move on to next cycle
-            current_date = next_date
-
-        print('Final:\n', hist_cases_gdf.tail(30))
+            current_date = current_end_date + d1
+        hist_cases_gdf = hist_cases_gdf[
+            (hist_cases_gdf.Date >= self.start_date) & (hist_cases_gdf.Date <= self.end_date)]
+        country_name = hist_ips_gdf['CountryName'].iloc[0]
+        region_name = hist_ips_gdf['RegionName'].iloc[0]
+        geo_pred_df = pd.DataFrame(np.array([
+            [country_name] * hist_cases_gdf.shape[0],
+            [region_name] * hist_cases_gdf.shape[0],
+            hist_cases_gdf['Date'],
+            hist_cases_gdf['NewCases'],
+        ]).T, columns=['CountryName', 'RegionName', 'Date', 'PredictedDailyNewCases'])
+        print('Final:\n', geo_pred_df)
+        return geo_pred_df
 
     @staticmethod
     def load_geo_model(geo=None) -> BaseModel:
