@@ -166,6 +166,7 @@ class TotalModel(BaseModel):
         start_date = kwargs.pop('start_date')
         end_date = kwargs.pop('end_date')
         geo_encoder = kwargs.pop('geo_encoder')
+        country_encoder = kwargs.pop('country_encoder')
         initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
         dayofweek = []
         months = []
@@ -178,10 +179,16 @@ class TotalModel(BaseModel):
             cap = 50
             weeks = min(max(weeks, 0), cap)
             weeks_since_initial.append(weeks)
-        g = gdf['GeoID'].to_list()[0]
-        geo_encoded = geo_encoder.transform([g] * len(weeks_since_initial))
-        extra_features = np.array([geo_encoded,
-                                   weeks_since_initial, dayofweek, months]).T
+        g = gdf['GeoID'].iloc[0]
+        c = gdf['CountryName'].iloc[0]
+        geo_encoded = geo_encoder.transform([g])[0]
+        country_encoded = country_encoder.transform([c])[0]
+        num = len(weeks_since_initial)
+        extra_features = np.array([
+            [geo_encoded]*num,
+            [country_encoded]*num,
+            weeks_since_initial,
+            dayofweek, months]).T
         return extra_features
 
     def extract_labels(self, gdf: pd.DataFrame, **kwargs):
@@ -195,7 +202,7 @@ class TotalModel(BaseModel):
             y_samples.append(all_case_data[d:d + self.predict_days_once].flatten())
         return y_samples
 
-    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list, geo_encoder, holdout_num=7):
+    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list, geo_encoder, holdout_num=14, country_encoder=None):
         X_train_samples = dict()
         X_test_samples = dict()
         y_train_samples = dict()
@@ -224,8 +231,8 @@ class TotalModel(BaseModel):
                 gdf,
                 start_date=start_date,
                 end_date=end_date,
-                geo_encoder=geo_encoder
-
+                geo_encoder=geo_encoder,
+                country_encoder=country_encoder,
             )
 
             print('Train %s' % g)
@@ -281,7 +288,7 @@ class TotalModel(BaseModel):
         #                      n_jobs=2
         #                      )
         # change n_estimators=500
-        model = RandomForestRegressor(max_depth=20, max_features=30, n_estimators=200, min_samples_leaf=1,
+        model = RandomForestRegressor(max_depth=20, max_features=30, n_estimators=300, min_samples_leaf=1,
                                       criterion='mse', random_state=301)
         # model = MultiOutputRegressor(model)
         model.fit(X_train, y_train)
@@ -344,6 +351,9 @@ class FinalPredictor:
 
         encoder = preprocessing.LabelEncoder()
         self.geo_id_encoder = encoder.fit(hist_df.GeoID.unique())
+        country_encoder = preprocessing.LabelEncoder()
+        self.country_encoder = country_encoder.fit(hist_df.CountryName.unique())
+
         # hist_df['GeoIDEncoded'] = self.geo_id_encoder.transform(np.array(hist_df['GeoID']))
         hist_df = hist_df[ID_COLS + CASES_COL + NPI_COLS]
         # Keep only the id and cases columns
@@ -370,7 +380,7 @@ class FinalPredictor:
 
     def fit_total(self):
         model = self.load_geo_model()
-        model.fit(self.hist_df, self.unique_geo_ids, self.geo_id_encoder)
+        model.fit(self.hist_df, self.unique_geo_ids, self.geo_id_encoder, country_encoder=self.country_encoder)
 
     def predict(self):
         geo_pred_dfs = []
@@ -426,7 +436,8 @@ class FinalPredictor:
                 self.hist_df,
                 start_date=current_date,
                 end_date=current_date + d1,
-                geo_encoder=self.geo_id_encoder
+                geo_encoder=self.geo_id_encoder,
+                country_encoder=self.country_encoder
             )
             # choose last one
             cases_features = model.extract_cases_features(hist_cases_gdf, days_forward=1)
@@ -460,6 +471,7 @@ class FinalPredictor:
         hist_cases_gdf.insert(0, 'CountryName', country_name)
         hist_cases_gdf.insert(1, 'region_name',  region_name)
         hist_cases_gdf = hist_cases_gdf.drop(columns=['GeoID'])
+        hist_cases_gdf.rename(columns={"NewCases": "PredictedDailyNewCases"}, inplace=True)
         # geo_pred_df = pd.DataFrame(np.array([
         #     [country_name] * hist_cases_gdf.shape[0],
         #     [region_name] * hist_cases_gdf.shape[0],
