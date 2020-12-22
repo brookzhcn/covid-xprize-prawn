@@ -487,7 +487,7 @@ class FinalPredictor:
         country_name = hist_ips_gdf['CountryName'].iloc[0]
         region_name = hist_ips_gdf['RegionName'].iloc[0]
         hist_cases_gdf.insert(0, 'CountryName', country_name)
-        hist_cases_gdf.insert(1, 'region_name', region_name)
+        hist_cases_gdf.insert(1, 'RegionName', region_name)
         hist_cases_gdf = hist_cases_gdf.drop(columns=['GeoID'])
         hist_cases_gdf.rename(columns={"NewCases": "PredictedDailyNewCases"}, inplace=True)
         # geo_pred_df = pd.DataFrame(np.array([
