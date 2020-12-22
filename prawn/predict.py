@@ -234,7 +234,7 @@ class TotalModel(BaseModel):
             start_date = initial_date+d1
             last_valid_index = gdf['ConfirmedCases'].last_valid_index()
             end_date = gdf.loc[last_valid_index, 'Date'] - np.timedelta64(self.predict_days_once, 'D')
-
+            assert end_date.strftime('%Y-%m-%d') == '2020-12-13'
             print(f"{g} : {start_date.strftime('%Y-%m-%d')} {end_date.strftime('%Y-%m-%d')}")
             days_forward = (end_date - start_date) // np.timedelta64(1, 'D')
             print(f'days forward: {days_forward}')
@@ -364,6 +364,8 @@ class FinalPredictor:
         hist_df['GeoID'] = hist_df['CountryName'] + '__' + hist_df['RegionName'].astype(str)
         # Add new cases column
         hist_df['NewCases'] = hist_df.groupby('GeoID').ConfirmedCases.diff().fillna(0)
+        # fill negative zero
+        hist_df.loc[hist_df['NewCases'] < 0, 'NewCases'] = 0
         # Fill any missing case values by interpolation and setting NaNs to 0
         hist_df.update(hist_df.groupby('GeoID').NewCases.apply(
             lambda group: group.interpolate()).fillna(0))
@@ -424,7 +426,7 @@ class FinalPredictor:
         hist_cases_df = self.hist_cases_df
         # Pull out all relevant data for country c
         hist_cases_gdf = hist_cases_df[hist_cases_df.GeoID == g]
-        last_known_date = hist_cases_gdf.Date.max()
+        last_known_date = pd.to_datetime('2020-12-20', format='%Y-%m-%d')
         hist_ips_gdf = self.hist_ips_df[self.hist_ips_df.GeoID == g].copy()
         print('last know date', last_known_date)
         print('end date', self.end_date)

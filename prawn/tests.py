@@ -16,7 +16,7 @@ class TestPredict(unittest.TestCase):
         print("this tearDownClass() method only called once too.\n")
 
     def setUp(self) -> None:
-        self.predictor = FinalPredictor(start_date_str='2020-12-01', end_date_str='2020-12-31',
+        self.predictor = FinalPredictor(start_date_str='2020-12-22', end_date_str='2021-01-31',
                                         path_to_ips_file=os.path.join(DATA_PATH, 'future_ip.csv'),
                                         verbose=True)
 
