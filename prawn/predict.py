@@ -147,23 +147,32 @@ class TotalModel(BaseModel):
     def extract_cases_features(self, gdf, **kwargs):
         # all_case_data = np.array(gdf[CASES_COL])
         days_forward = kwargs.pop('days_forward')
+        # start date should not be included
         start_date = kwargs.pop('start_date', None)
+        d1 = np.timedelta64(1, 'D')
         if start_date is None:
-            start_index = gdf.index[-1]
+            start_date = gdf['Date'].max() + d1
+            start_index = gdf['Date'].idxmax() + 1
         else:
             start_index = gdf[gdf['Date'] == start_date].index[0]
         cases_features = []
         case_lookback_days = 14
-        if start_date is None:
-            new_max = gdf['NewCases'].max()
-            new_mean = gdf['NewCases'].mean()
-        else:
-            pre_gdf = gdf[gdf.Date < start_date]
-            new_max = pre_gdf['NewCases'].max()
-            new_mean = pre_gdf['NewCases'].mean()
+        # if start_date is None:
+        #     new_max = gdf['NewCases'].max()
+        #     new_mean = gdf['NewCases'].mean()
+        #     # the max new case date in the past
+        #     max_date_index = gdf['NewCases'].idxmax()
+        #     interval_since_max = start_index - max_date_index
+        # else:
+        #     pre_gdf = gdf[gdf.Date < start_date]
+        #     new_max = pre_gdf['NewCases'].max()
+        #     new_mean = pre_gdf['NewCases'].mean()
+        #     max_date_index = pre_gdf['NewCases'].idxmax()
+        #     interval_since_max = start_index - max_date_index
+
         for d in range(days_forward):
-            X_cases = gdf.loc[start_index - case_lookback_days + 1:start_index, 'NewCases'].to_numpy()
-            X_cases = np.append(X_cases, [new_max, new_mean])
+            X_cases = gdf.loc[start_index - case_lookback_days:start_index-1, 'NewCases'].to_numpy()
+            # X_cases = np.append(X_cases, [new_max, new_mean, interval_since_max+d])
             cases_features.append(X_cases)
             # move to next
             start_index += 1
@@ -176,6 +185,7 @@ class TotalModel(BaseModel):
         geo_encoder = kwargs.pop('geo_encoder')
         country_encoder = kwargs.pop('country_encoder')
         initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
+
         dayofweek = []
         months = []
         weeks_since_initial = []
