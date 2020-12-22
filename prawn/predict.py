@@ -220,7 +220,7 @@ class TotalModel(BaseModel):
             y_samples.append(all_case_data[d:d + self.predict_days_once].flatten())
         return y_samples
 
-    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list, geo_encoder, holdout_num=14, country_encoder=None):
+    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list, geo_encoder, holdout_num=1, country_encoder=None):
         X_train_samples = dict()
         X_test_samples = dict()
         y_train_samples = dict()
@@ -232,8 +232,10 @@ class TotalModel(BaseModel):
             gdf = hist_df[hist_df.GeoID == g]
             initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
             start_date = initial_date+d1
-            print(f'{g} Start date {start_date}')
-            end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once - 1, 'D')
+            last_valid_index = gdf['ConfirmedCases'].last_valid_index()
+            end_date = gdf.loc[last_valid_index, 'Date'] - np.timedelta64(self.predict_days_once, 'D')
+
+            print(f"{g} : {start_date.strftime('%Y-%m-%d')} {end_date.strftime('%Y-%m-%d')}")
             days_forward = (end_date - start_date) // np.timedelta64(1, 'D')
             print(f'days forward: {days_forward}')
             npi_features = self.extract_npis_features(
@@ -376,7 +378,7 @@ class FinalPredictor:
         self.country_encoder = country_encoder.fit(hist_df.CountryName.unique())
 
         # hist_df['GeoIDEncoded'] = self.geo_id_encoder.transform(np.array(hist_df['GeoID']))
-        hist_df = hist_df[ID_COLS + CASES_COL + NPI_COLS]
+        hist_df = hist_df[ID_COLS + CASES_COL + NPI_COLS + ['ConfirmedCases']]
         # Keep only the id and cases columns
         hist_cases_df = hist_df[ID_COLS + CASES_COL]
 
