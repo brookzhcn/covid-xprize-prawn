@@ -154,8 +154,16 @@ class TotalModel(BaseModel):
             start_index = gdf[gdf['Date'] == start_date].index[0]
         cases_features = []
         case_lookback_days = 14
+        if start_date is None:
+            new_max = gdf['NewCases'].max()
+            new_mean = gdf['NewCases'].mean()
+        else:
+            pre_gdf = gdf[gdf.Date < start_date]
+            new_max = pre_gdf['NewCases'].max()
+            new_mean = pre_gdf['NewCases'].mean()
         for d in range(days_forward):
             X_cases = gdf.loc[start_index - case_lookback_days + 1:start_index, 'NewCases'].to_numpy()
+            X_cases = np.append(X_cases, [new_max, new_mean])
             cases_features.append(X_cases)
             # move to next
             start_index += 1
@@ -185,8 +193,8 @@ class TotalModel(BaseModel):
         country_encoded = country_encoder.transform([c])[0]
         num = len(weeks_since_initial)
         extra_features = np.array([
-            [geo_encoded]*num,
-            [country_encoded]*num,
+            [geo_encoded] * num,
+            [country_encoded] * num,
             weeks_since_initial,
             dayofweek, months]).T
         return extra_features
@@ -288,7 +296,7 @@ class TotalModel(BaseModel):
         #                      n_jobs=2
         #                      )
         # change n_estimators=500
-        model = RandomForestRegressor(max_depth=20, max_features='sqrt', n_estimators=300, min_samples_leaf=1,
+        model = RandomForestRegressor(max_depth=20, max_features=30, n_estimators=300, min_samples_leaf=1,
                                       criterion='mse', random_state=301, bootstrap=False, n_jobs=6)
         # model = MultiOutputRegressor(model)
         model.fit(X_train, y_train)
@@ -469,7 +477,7 @@ class FinalPredictor:
         country_name = hist_ips_gdf['CountryName'].iloc[0]
         region_name = hist_ips_gdf['RegionName'].iloc[0]
         hist_cases_gdf.insert(0, 'CountryName', country_name)
-        hist_cases_gdf.insert(1, 'region_name',  region_name)
+        hist_cases_gdf.insert(1, 'region_name', region_name)
         hist_cases_gdf = hist_cases_gdf.drop(columns=['GeoID'])
         hist_cases_gdf.rename(columns={"NewCases": "PredictedDailyNewCases"}, inplace=True)
         # geo_pred_df = pd.DataFrame(np.array([
