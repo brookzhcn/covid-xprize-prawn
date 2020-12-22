@@ -225,11 +225,14 @@ class TotalModel(BaseModel):
         X_test_samples = dict()
         y_train_samples = dict()
         y_test_samples = dict()
-        # the start date can strongly affect the final result
-        start_date = np.datetime64('2020-03-21')
         # start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
+        d1 = np.timedelta64(14, 'D')
         for g in unique_geo_ids:
+            # the start date can strongly affect the final result
             gdf = hist_df[hist_df.GeoID == g]
+            initial_date = gdf[gdf['NewCases'] > 0]['Date'].iloc[0]
+            start_date = initial_date+d1
+            print(f'{g} Start date {start_date}')
             end_date = gdf.Date.max() - np.timedelta64(self.predict_days_once - 1, 'D')
             days_forward = (end_date - start_date) // np.timedelta64(1, 'D')
             print(f'days forward: {days_forward}')
