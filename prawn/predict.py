@@ -227,6 +227,9 @@ class TotalModel(BaseModel):
         y_test_samples = dict()
         # start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
         d1 = np.timedelta64(self.nb_lookback_days, 'D')
+        f1 = 0
+        f2 = 0
+        f3 = 0
         for g in unique_geo_ids:
             # the start date can strongly affect the final result
             gdf = hist_df[hist_df.GeoID == g]
@@ -260,11 +263,13 @@ class TotalModel(BaseModel):
 
             print('Train %s' % g)
             print('NPI: ', npi_features.shape)
+            f1 = npi_features.shape[1]
             print('Cases:', cases_features.shape)
+            f2 = cases_features.shape[1]
             print('Extra:', extra_features.shape)
+            f3 = extra_features.shape[1]
             X_samples = np.concatenate([npi_features, cases_features, extra_features], axis=1)
             print('X_sample:', X_samples.shape)
-
             y_samples = self.extract_labels(
                 gdf,
                 start_date=start_date,
@@ -329,7 +334,13 @@ class TotalModel(BaseModel):
         test_preds = model.predict(X_test)
         test_preds = np.maximum(test_preds, 0)  # Don't predict negative cases
         print('Test MAE:', mae(test_preds, y_test))
+
         print(model.feature_importances_)
+        print(f1, f2, f3)
+        f1_imp = sum(model.feature_importances_[:f1])
+        f2_imp = sum(model.feature_importances_[f1:f1+f2])
+        f3_imp = sum(model.feature_importances_[f1+f2:])
+        print(f1_imp, f2_imp, f3_imp)
         with open('models1/model.pkl', 'wb') as model_file:
             pickle.dump(model, model_file)
 
