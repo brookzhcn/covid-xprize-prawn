@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import os
 from sklearn import preprocessing
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor
 import pickle
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.model_selection import GridSearchCV
@@ -24,7 +24,7 @@ NB_LOOKBACK_DAYS = 30
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(ROOT_DIR, 'data', "OxCGRT_latest.csv")
 REGIONS_FILE = os.path.join(ROOT_DIR, 'data', "countries_regions.csv")
-TOTAL_MODEL_FILE = os.path.join(ROOT_DIR, "models", "model.pkl")
+TOTAL_MODEL_FILE = os.path.join(ROOT_DIR, "models1", "model.pkl")
 ID_COLS = ['CountryName',
            'RegionName',
            'GeoID',
@@ -156,7 +156,7 @@ class TotalModel(BaseModel):
         else:
             start_index = gdf[gdf['Date'] == start_date].index[0]
         cases_features = []
-        case_lookback_days = 14
+        case_lookback_days = self.nb_lookback_days
         # if start_date is None:
         #     new_max = gdf['NewCases'].max()
         #     new_mean = gdf['NewCases'].mean()
@@ -189,13 +189,13 @@ class TotalModel(BaseModel):
         dayofweek = []
         months = []
         weeks_since_initial = []
+        cap = 50
         for d in pd.date_range(start_date, end_date, freq='1D', closed='left'):
             dayofweek.append(d.dayofweek)
             months.append(d.month)
             days = (d - initial_date) / np.timedelta64(1, 'D')
             weeks = days // 7 + 1
-            cap = 50
-            weeks = min(max(weeks, 0), cap)
+            weeks = max(weeks, 0)
             weeks_since_initial.append(weeks)
         g = gdf['GeoID'].iloc[0]
         c = gdf['CountryName'].iloc[0]
@@ -226,7 +226,7 @@ class TotalModel(BaseModel):
         y_train_samples = dict()
         y_test_samples = dict()
         # start_date = start_date + np.timedelta64(self.nb_lookback_days, 'D')
-        d1 = np.timedelta64(14, 'D')
+        d1 = np.timedelta64(self.nb_lookback_days, 'D')
         for g in unique_geo_ids:
             # the start date can strongly affect the final result
             gdf = hist_df[hist_df.GeoID == g]
@@ -234,7 +234,7 @@ class TotalModel(BaseModel):
             start_date = initial_date+d1
             last_valid_index = gdf['ConfirmedCases'].last_valid_index()
             end_date = gdf.loc[last_valid_index, 'Date'] - np.timedelta64(self.predict_days_once, 'D')
-            assert end_date.strftime('%Y-%m-%d') == '2020-12-13'
+            # assert end_date.strftime('%Y-%m-%d') == '2020-12-13'
             print(f"{g} : {start_date.strftime('%Y-%m-%d')} {end_date.strftime('%Y-%m-%d')}")
             days_forward = (end_date - start_date) // np.timedelta64(1, 'D')
             print(f'days forward: {days_forward}')
@@ -311,8 +311,14 @@ class TotalModel(BaseModel):
         #                      n_jobs=2
         #                      )
         # change n_estimators=500
-        model = RandomForestRegressor(max_depth=20, max_features=30, n_estimators=300, min_samples_leaf=1,
-                                      criterion='mse', random_state=301, bootstrap=False, n_jobs=6)
+        model = RandomForestRegressor(max_depth=20, max_features=30, n_estimators=200, min_samples_leaf=1,
+                                      bootstrap=False,
+                                      warm_start=True,
+                                      # ccp_alpha=100,
+                                      criterion='mse', random_state=301,  n_jobs=6)
+        # model = ExtraTreesRegressor(
+        #     max_depth=20, max_features='sqrt', n_estimators=200, min_samples_leaf=1,
+        # )
         # model = MultiOutputRegressor(model)
         model.fit(X_train, y_train)
         # Evaluate model
@@ -324,7 +330,7 @@ class TotalModel(BaseModel):
         test_preds = np.maximum(test_preds, 0)  # Don't predict negative cases
         print('Test MAE:', mae(test_preds, y_test))
         print(model.feature_importances_)
-        with open('models/model.pkl', 'wb') as model_file:
+        with open('models1/model.pkl', 'wb') as model_file:
             pickle.dump(model, model_file)
 
 
