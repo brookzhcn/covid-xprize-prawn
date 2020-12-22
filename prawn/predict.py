@@ -195,7 +195,7 @@ class TotalModel(BaseModel):
             y_samples.append(all_case_data[d:d + self.predict_days_once].flatten())
         return y_samples
 
-    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list, geo_encoder, holdout_num=14):
+    def fit(self, hist_df: pd.DataFrame, unique_geo_ids: list, geo_encoder, holdout_num=7):
         X_train_samples = dict()
         X_test_samples = dict()
         y_train_samples = dict()
@@ -382,8 +382,7 @@ class FinalPredictor:
             geo_pred_dfs.append(geo_pred_df)
 
         pred_df = pd.concat(geo_pred_dfs, ignore_index=True)
-        if self.verbose:
-            print('pred_df:\n', pred_df)
+        print('pred_df:\n', pred_df)
         return pred_df
 
     def predict_geo(self, g):
@@ -409,17 +408,16 @@ class FinalPredictor:
         current_date = min(last_known_date + np.timedelta64(1, 'D'), self.start_date)
         hist_cases_gdf = hist_cases_gdf[hist_cases_gdf.Date < current_date][['GeoID', 'Date', 'NewCases']].copy(
             deep=True)
-        print(hist_cases_gdf)
+        if self.verbose:
+            print(hist_cases_gdf)
         model = self.load_geo_model(g)
 
         interval = np.timedelta64(model.predict_days_once - 1, 'D')
         d1 = np.timedelta64(1, 'D')
-        print('Train %s' % g)
-
         while current_date <= self.end_date:
             current_end_date = current_date + interval
 
-            print(f"date range:{current_date.strftime('%Y-%m-%d')}-{current_end_date.strftime('%Y-%m-%d')}")
+            print(f"{g}:{current_date.strftime('%Y-%m-%d')}-{current_end_date.strftime('%Y-%m-%d')}")
 
             npi_features = model.extract_npis_features(hist_ips_gdf, start_date=current_date,
                                                        end_date=current_date + d1)
@@ -432,14 +430,17 @@ class FinalPredictor:
             )
             # choose last one
             cases_features = model.extract_cases_features(hist_cases_gdf, days_forward=1)
-            print('Train %s' % g)
-            print('NPI: ', npi_features.shape)
-            print('Cases:', cases_features.shape)
-            print('Extra:', extra_features.shape)
+            if self.verbose:
+                print('Train %s' % g)
+                print('NPI: ', npi_features.shape)
+                print('Cases:', cases_features.shape)
+                print('Extra:', extra_features.shape)
             X = np.concatenate([npi_features, cases_features, extra_features], axis=1)
-            print('X_sample:', X.shape)
+            if self.verbose:
+                print('X_sample:', X.shape)
             pred = model.predict(X)
-            print('pred:', pred.shape, pred)
+            if self.verbose:
+                print('pred:', pred.shape, pred)
             tmp_case_df = pd.DataFrame({
                 'Date': pd.date_range(current_date, current_end_date, freq='1D'),
                 'NewCases': pred[0]
@@ -462,7 +463,8 @@ class FinalPredictor:
             hist_cases_gdf['Date'],
             hist_cases_gdf['NewCases'],
         ]).T, columns=['CountryName', 'RegionName', 'Date', 'PredictedDailyNewCases'])
-        print('Final:\n', geo_pred_df)
+        if self.verbose:
+            print('Final:\n', geo_pred_df)
         return geo_pred_df
 
     @staticmethod
