@@ -288,8 +288,8 @@ class TotalModel(BaseModel):
         #                      n_jobs=2
         #                      )
         # change n_estimators=500
-        model = RandomForestRegressor(max_depth=20, max_features=30, n_estimators=300, min_samples_leaf=1,
-                                      criterion='mse', random_state=301)
+        model = RandomForestRegressor(max_depth=20, max_features='sqrt', n_estimators=300, min_samples_leaf=1,
+                                      criterion='mse', random_state=301, bootstrap=False, n_jobs=6)
         # model = MultiOutputRegressor(model)
         model.fit(X_train, y_train)
         # Evaluate model
