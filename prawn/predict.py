@@ -457,15 +457,18 @@ class FinalPredictor:
             (hist_cases_gdf.Date >= self.start_date) & (hist_cases_gdf.Date <= self.end_date)]
         country_name = hist_ips_gdf['CountryName'].iloc[0]
         region_name = hist_ips_gdf['RegionName'].iloc[0]
-        geo_pred_df = pd.DataFrame(np.array([
-            [country_name] * hist_cases_gdf.shape[0],
-            [region_name] * hist_cases_gdf.shape[0],
-            hist_cases_gdf['Date'],
-            hist_cases_gdf['NewCases'],
-        ]).T, columns=['CountryName', 'RegionName', 'Date', 'PredictedDailyNewCases'])
+        hist_cases_gdf.insert(0, 'CountryName', country_name)
+        hist_cases_gdf.insert(1, 'region_name',  region_name)
+        hist_cases_gdf = hist_cases_gdf.drop(columns=['GeoID'])
+        # geo_pred_df = pd.DataFrame(np.array([
+        #     [country_name] * hist_cases_gdf.shape[0],
+        #     [region_name] * hist_cases_gdf.shape[0],
+        #     hist_cases_gdf['Date'],
+        #     hist_cases_gdf['NewCases'],
+        # ]).T, columns=['CountryName', 'RegionName', 'Date', 'PredictedDailyNewCases'])
         if self.verbose:
-            print('Final:\n', geo_pred_df)
-        return geo_pred_df
+            print('Final:\n', hist_cases_gdf)
+        return hist_cases_gdf
 
     @staticmethod
     def load_geo_model(geo=None) -> BaseModel:
