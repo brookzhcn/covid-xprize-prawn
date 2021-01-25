@@ -1,6 +1,7 @@
 from prawn.predict import FinalPredictor
 import unittest
 import os
+from prawn.standard_predictor.predict import predict
 
 DATA_PATH = os.path.join(os.path.dirname(__file__), 'data')
 OUTPUT_PATH = os.path.join(os.path.dirname(__file__), 'output')
@@ -32,6 +33,13 @@ class TestPredict(unittest.TestCase):
 
     def test_fit_total(self):
         self.predictor.fit_total()
+
+    def test_standard_predictor(self):
+        predict(start_date='2020-12-22',
+                end_date='2021-01-31',
+                path_to_ips_file=os.path.join(DATA_PATH, 'future_ip.csv'),
+                output_file_path=os.path.join(DATA_PATH, 'results.csv')
+                                        )
 
 
 if __name__ == '__main__':
