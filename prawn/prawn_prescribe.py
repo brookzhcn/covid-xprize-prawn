@@ -19,7 +19,7 @@ def add_geo_id(df):
 
 class PrawnPrescribe:
     def __init__(self, start_date_str: str, end_date_str: str, path_to_prior_ips_file,
-                 path_to_cost_file, predictor: XPrizePredictor, interval=7):
+                 path_to_cost_file, predictor: XPrizePredictor, interval=7, verbose=True):
         self.start_date = pd.to_datetime(start_date_str, format='%Y-%m-%d')
         self.end_date = pd.to_datetime(end_date_str, format='%Y-%m-%d')
         self.start_date_str = start_date_str
@@ -38,6 +38,7 @@ class PrawnPrescribe:
         self.interval = interval
         self.num_of_intervals = math.ceil(self.num_of_days / self.interval)
         self.predictor = predictor
+        self.verbose = verbose
 
     @staticmethod
     def load_cost_df(path_to_cost_file):
@@ -63,6 +64,10 @@ class PrawnPrescribe:
     @staticmethod
     def _random_policy(max_value=6):
         return np.random.randint(0, max_value, size=len(NPI_COLUMNS))
+
+    @staticmethod
+    def _fix_value_policy(val):
+        return np.array([val]*len(NPI_COLUMNS))
 
     @staticmethod
     def _trans_to_str(rp):
@@ -102,6 +107,13 @@ class PrawnPrescribe:
             policy.append(rp)
         return np.concatenate(policy)
 
+    def get_fix_value_policy_flat(self, val):
+        policy = []
+        for interval_index in range(self.num_of_intervals):
+            rp = self._fix_value_policy(val)
+            policy.append(rp)
+        return np.concatenate(policy)
+
     def _transform_to_total_policy(self, interval_policy):
         total = interval_policy.repeat(self.interval, axis=0)
         return total[:self.num_of_days]
@@ -136,9 +148,11 @@ class PrawnPrescribe:
             geo_id = gdf['GeoID'].iloc[0]
             real_policy = self.transfer_to_real_policy(solution=solution)
             w = self.cost_dict[geo_id]
-            avg_stringency = w.dot(real_policy.T).mean(axis=1).iloc[0]
-            pred_df = self.predict(gdf, self._transform_to_total_policy(real_policy))
+            total_policy = self._transform_to_total_policy(real_policy)
+            avg_stringency = w.dot(total_policy.T).mean(axis=1).iloc[0]
+            pred_df = self.predict(gdf, total_policy)
             avg_new_case = pred_df['PredictedDailyNewCases'].mean()
+            print(pred_df['PredictedDailyNewCases'])
             val = -avg_new_case - ratio * avg_stringency
             print(
                 "{} Solution {}: {:.2f},  avg_stringency: {:.2f}  avg_new_case: {:.2f} \n".format(
@@ -215,11 +229,14 @@ class PrawnPrescribe:
         print(average)
         num_of_initial_policies = 50
         initial_population = []
+        for v in range(6):
+            initial_population.append(self.get_fix_value_policy_flat(v))
+
         for _ in range(num_of_initial_policies):
             p = self.get_interval_policy_flat()
             initial_population.append(p)
 
-        num_generations = 10  # Number of generations.
+        num_generations = 15  # Number of generations.
         num_parents_mating = 10  # Number of solutions to be selected as parents in the mating pool.
         fitness_func = self.get_fitness_func(gdf, 10)
         ga_instance = pygad.GA(num_generations=num_generations,
@@ -291,7 +308,7 @@ if __name__ == '__main__':
                                 interval=14
                                 )
 
-    prescribe1.run_geo('Afghanistan')
+    prescribe1.run_geo('Argentina')
     # pool_size = multiprocessing.cpu_count() * 2
     # print(f'pool size {pool_size}')
     # pool = multiprocessing.Pool(processes=pool_size, initializer=start_process)
