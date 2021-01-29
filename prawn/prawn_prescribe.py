@@ -4,6 +4,8 @@ from prawn.standard_predictor.xprize_predictor import NPI_COLUMNS, XPrizePredict
 import math
 import pygad
 import time
+import multiprocessing
+from joblib import Parallel, delayed
 
 weekend_related_index = [0, 1]
 
@@ -27,7 +29,8 @@ class PrawnPrescribe:
         ips_df = self.load_ips_df(path_to_prior_ips_file)
         self.ips_df = ips_df
         cost_dict = {}
-        for geo_id in self.cost_df.GeoID.unique():
+        self.geo_list = self.cost_df.GeoID.unique().tolist()
+        for geo_id in self.geo_list:
             cost_dict[geo_id] = self.cost_df[self.cost_df['GeoID'] == geo_id][NPI_COLUMNS]
         self.cost_dict = cost_dict
         self.num_of_days = (self.end_date - self.start_date).days + 1
@@ -133,7 +136,7 @@ class PrawnPrescribe:
             geo_id = gdf['GeoID'].iloc[0]
             real_policy = self.transfer_to_real_policy(solution=solution)
             w = self.cost_dict[geo_id]
-            avg_stringency = w.dot(real_policy.T).mean(axis=1)[0]
+            avg_stringency = w.dot(real_policy.T).mean(axis=1).iloc[0]
             pred_df = self.predict(gdf, self._transform_to_total_policy(real_policy))
             avg_new_case = pred_df['PredictedDailyNewCases'].mean()
             val = -avg_new_case - ratio * avg_stringency
@@ -199,26 +202,26 @@ class PrawnPrescribe:
         return on_stop
 
     def run_geo(self, geo, prescription_index=0):
-        ip = prescribe.get_interval_policy()
-        ips_df = prescribe.ips_df[(prescribe.ips_df.Date >= prescribe.start_date) &
-                                  (prescribe.ips_df.Date <= prescribe.end_date)]
+        ip = self.get_interval_policy()
+        ips_df = self.ips_df[(self.ips_df.Date >= self.start_date) &
+                             (self.ips_df.Date <= self.end_date)]
         gdf = ips_df[ips_df.GeoID == geo].copy()
         # print(gdf)
-        pred_df = prescribe.predict(gdf, ip)
+        pred_df = self.predict(gdf, ip)
         average = pred_df['PredictedDailyNewCases'].mean()
-        flat_policy = prescribe.get_interval_policy_flat()
+        # flat_policy = self.get_interval_policy_flat()
         # print(flat_policy)
 
         print(average)
         num_of_initial_policies = 50
         initial_population = []
         for _ in range(num_of_initial_policies):
-            p = prescribe.get_interval_policy_flat()
+            p = self.get_interval_policy_flat()
             initial_population.append(p)
 
         num_generations = 10  # Number of generations.
         num_parents_mating = 10  # Number of solutions to be selected as parents in the mating pool.
-        fitness_func = prescribe.get_fitness_func(gdf, 10)
+        fitness_func = self.get_fitness_func(gdf, 10)
         ga_instance = pygad.GA(num_generations=num_generations,
                                num_parents_mating=num_parents_mating,
                                fitness_func=fitness_func,
@@ -226,7 +229,7 @@ class PrawnPrescribe:
                                gene_type=int,
                                parent_selection_type='rank',
                                mutation_type='random',
-                               crossover_type='single_point',
+                               crossover_type='two_points',
                                mutation_percent_genes=10,
                                gene_space=[0, 1, 2, 3, 4, 5],
                                # on_start=prescribe.get_on_start(),
@@ -258,17 +261,43 @@ class PrawnPrescribe:
         # print(f'median_fitness_val: {median_fitness_val}')
         print(f'finish in {e - s} seconds')
         print(f'Best fitness {ga_instance.best_solutions_fitness}')
-        prescription_df.to_csv(f'{geo}.csv', index=False)
+        prescription_df.to_csv(f'{geo}-{self.interval}.csv', index=False)
         return prescription_df
 
 
-if __name__ == '__main__':
-    x_predictor = XPrizePredictor()
+def start_process():
+    print('Starting, ', multiprocessing.current_process().name)
 
-    prescribe = PrawnPrescribe(start_date_str='2020-08-01', end_date_str='2020-08-31',
+
+def run_geo(geo, start_date, end_date):
+    x_predictor = XPrizePredictor()
+    prescribe = PrawnPrescribe(start_date_str=start_date, end_date_str= end_date,
                                path_to_prior_ips_file='data/2020-09-30_historical_ip.csv',
                                path_to_cost_file='data/uniform_random_costs.csv', predictor=x_predictor,
                                interval=14
                                )
 
-    prescribe.run_geo('Afghanistan')
+    return prescribe.run_geo(geo)
+    # print(f'pool size {pool_size}')
+    # pool = multiprocessing.Pool(processes=pool_size, initializer=start_process)
+
+
+if __name__ == '__main__':
+    x_predictor = XPrizePredictor()
+
+    prescribe1 = PrawnPrescribe(start_date_str='2020-08-01', end_date_str='2020-08-31',
+                                path_to_prior_ips_file='data/2020-09-30_historical_ip.csv',
+                                path_to_cost_file='data/uniform_random_costs.csv', predictor=x_predictor,
+                                interval=14
+                                )
+
+    prescribe1.run_geo('Afghanistan')
+    # pool_size = multiprocessing.cpu_count() * 2
+    # print(f'pool size {pool_size}')
+    # pool = multiprocessing.Pool(processes=pool_size, initializer=start_process)
+    # geo_list = prescribe1.geo_list[:10]
+    # Parallel(backend='loky', n_jobs=6)(delayed(prescribe1.run_geo)(geo) for geo in geo_list)
+    # print(geo_list)
+    # pool_outputs = pool.map(delayed(prescribe.run_geo)(geo) for geo in geo_list)
+    # pool.close()
+    # pool.join()
