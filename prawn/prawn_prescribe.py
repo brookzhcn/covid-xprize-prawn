@@ -22,6 +22,7 @@ class PrawnPrescribe:
         self.end_date = pd.to_datetime(end_date_str, format='%Y-%m-%d')
         self.start_date_str = start_date_str
         self.end_date_str = end_date_str
+        self.date_range = pd.date_range(self.start_date, self.end_date)
         self.cost_df = self.load_cost_df(path_to_cost_file)
         ips_df = self.load_ips_df(path_to_prior_ips_file)
         self.ips_df = ips_df
@@ -197,57 +198,77 @@ class PrawnPrescribe:
 
         return on_stop
 
+    def run_geo(self, geo, prescription_index=0):
+        ip = prescribe.get_interval_policy()
+        ips_df = prescribe.ips_df[(prescribe.ips_df.Date >= prescribe.start_date) &
+                                  (prescribe.ips_df.Date <= prescribe.end_date)]
+        gdf = ips_df[ips_df.GeoID == geo].copy()
+        # print(gdf)
+        pred_df = prescribe.predict(gdf, ip)
+        average = pred_df['PredictedDailyNewCases'].mean()
+        flat_policy = prescribe.get_interval_policy_flat()
+        # print(flat_policy)
+
+        print(average)
+        num_of_initial_policies = 50
+        initial_population = []
+        for _ in range(num_of_initial_policies):
+            p = prescribe.get_interval_policy_flat()
+            initial_population.append(p)
+
+        num_generations = 10  # Number of generations.
+        num_parents_mating = 10  # Number of solutions to be selected as parents in the mating pool.
+        fitness_func = prescribe.get_fitness_func(gdf, 10)
+        ga_instance = pygad.GA(num_generations=num_generations,
+                               num_parents_mating=num_parents_mating,
+                               fitness_func=fitness_func,
+                               initial_population=initial_population,
+                               gene_type=int,
+                               parent_selection_type='rank',
+                               mutation_type='random',
+                               crossover_type='single_point',
+                               mutation_percent_genes=10,
+                               gene_space=[0, 1, 2, 3, 4, 5],
+                               # on_start=prescribe.get_on_start(),
+                               # on_fitness=prescribe.get_on_fitness(),
+                               # on_parents=prescribe.get_on_parents(),
+                               # on_crossover=prescribe.get_on_crossover(),
+                               # on_mutation=prescribe.get_on_mutation(),
+                               # on_generation=prescribe.get_on_generation(),
+                               # on_stop=prescribe.get_on_stop(),
+                               save_best_solutions=True
+                               )
+        s = time.time()
+        ga_instance.run()
+        country_name = gdf['CountryName'].iloc[0]
+        region_name = gdf['RegionName'].iloc[0]
+        num = len(self.date_range)
+        best_solution = ga_instance.best_solutions[-1]
+        real_policy = self.transfer_to_real_policy(best_solution)
+        prescription_df = pd.DataFrame({
+            'PrescriptionIndex': [prescription_index] * num,
+            'CountryName': [country_name] * num,
+            'RegionName': [region_name] * num,
+            'Date': [d.strftime("%Y-%m-%d") for d in self.date_range]
+        })
+        prescription_df[NPI_COLUMNS] = self._transform_to_total_policy(real_policy)
+        e = time.time()
+        # median_policy = np.median(ga_instance.best_solutions, axis=0)
+        # median_fitness_val = fitness_func(median_policy, -1)
+        # print(f'median_fitness_val: {median_fitness_val}')
+        print(f'finish in {e - s} seconds')
+        print(f'Best fitness {ga_instance.best_solutions_fitness}')
+        prescription_df.to_csv(f'{geo}.csv', index=False)
+        return prescription_df
+
 
 if __name__ == '__main__':
     x_predictor = XPrizePredictor()
 
     prescribe = PrawnPrescribe(start_date_str='2020-08-01', end_date_str='2020-08-31',
                                path_to_prior_ips_file='data/2020-09-30_historical_ip.csv',
-                               path_to_cost_file='data/uniform_random_costs.csv', predictor=x_predictor)
+                               path_to_cost_file='data/uniform_random_costs.csv', predictor=x_predictor,
+                               interval=14
+                               )
 
-    ip = prescribe.get_interval_policy()
-    ips_df = prescribe.ips_df[(prescribe.ips_df.Date >= prescribe.start_date) &
-                              (prescribe.ips_df.Date <= prescribe.end_date)]
-    gdf = ips_df[ips_df.GeoID == 'Afghanistan'].copy()
-    print(gdf)
-    pred_df = prescribe.predict(gdf, ip)
-    average = pred_df['PredictedDailyNewCases'].mean()
-    flat_policy = prescribe.get_interval_policy_flat()
-    print(flat_policy)
-
-    print(average)
-    num_of_initial_policies = 50
-    initial_population = []
-    for _ in range(num_of_initial_policies):
-        p = prescribe.get_interval_policy_flat()
-        initial_population.append(p)
-
-    num_generations = 10  # Number of generations.
-    num_parents_mating = 10  # Number of solutions to be selected as parents in the mating pool.
-    fitness_func = prescribe.get_fitness_func(gdf, 10)
-    ga_instance = pygad.GA(num_generations=10,
-                           num_parents_mating=num_parents_mating,
-                           fitness_func=fitness_func,
-                           initial_population=initial_population,
-                           gene_type=int,
-                           parent_selection_type='rank',
-                           mutation_type='random',
-                           crossover_type='single_point',
-                           mutation_percent_genes=10,
-                           gene_space=[0, 1, 2, 3, 4, 5],
-                           # on_start=prescribe.get_on_start(),
-                           # on_fitness=prescribe.get_on_fitness(),
-                           # on_parents=prescribe.get_on_parents(),
-                           # on_crossover=prescribe.get_on_crossover(),
-                           # on_mutation=prescribe.get_on_mutation(),
-                           # on_generation=prescribe.get_on_generation(),
-                           # on_stop=prescribe.get_on_stop(),
-                           save_best_solutions=True
-                           )
-    s = time.time()
-    ga_instance.run()
-    e = time.time()
-    median_policy = np.median(ga_instance.best_solutions, axis=0)
-    median_fitness_val = fitness_func(median_policy, -1)
-    print(f'median_fitness_val: {median_fitness_val}')
-    print(f'finish in {e - s} seconds')
+    prescribe.run_geo('Afghanistan')
