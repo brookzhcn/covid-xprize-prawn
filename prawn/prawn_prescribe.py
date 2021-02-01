@@ -395,6 +395,7 @@ class PrawnPrescribe:
                            # on_mutation=prescribe.get_on_mutation(),
                            # on_generation=self.get_on_generation(),
                            # on_stop=prescribe.get_on_stop(),
+                           suppress_warnings=True,
                            save_best_solutions=True
                            )
         ga_instance.improve_percents = 1
@@ -418,7 +419,7 @@ class PrawnPrescribe:
         # print(f'median_fitness_val: {median_fitness_val}')
         print(f'finish in {e - s} seconds')
         print(f'Best fitness {ga_instance.best_solutions_fitness}')
-        prescription_df.to_csv(f'{country_name}-{region_name}-{self.interval}.csv', index=False)
+        # prescription_df.to_csv(f'{country_name}-{region_name}-{self.interval}.csv', index=False)
         return prescription_df
 
 
@@ -426,11 +427,13 @@ def start_process():
     print('Starting, ', multiprocessing.current_process().name)
 
 
-def run_geo(geo, start_date, end_date):
+def run_geo(geo, start_date, end_date, path_to_cost_file, path_to_prior_ips_file):
+    print(f'run {geo}')
     x_predictor = XPrizePredictor()
     prescribe = PrawnPrescribe(start_date_str=start_date, end_date_str=end_date,
-                               path_to_prior_ips_file='data/2020-09-30_historical_ip.csv',
-                               path_to_cost_file='data/uniform_random_costs.csv', predictor=x_predictor,
+                               path_to_prior_ips_file=path_to_prior_ips_file,
+                               path_to_cost_file=path_to_cost_file,
+                               predictor=x_predictor,
                                interval=14
                                )
 
@@ -567,7 +570,7 @@ class GACluster:
 if __name__ == '__main__':
     x_predictor = XPrizePredictor()
 
-    prescribe1 = PrawnPrescribe(start_date_str='2020-08-01', end_date_str='2020-08-30',
+    prescribe1 = PrawnPrescribe(start_date_str='2020-08-01', end_date_str='2020-08-10',
                                 path_to_prior_ips_file='data/2020-09-30_historical_ip.csv',
                                 path_to_cost_file='data/uniform_random_costs.csv', predictor=x_predictor,
                                 interval=14
@@ -575,7 +578,7 @@ if __name__ == '__main__':
 
     prescribe1.run_geo('Vanuatu')
     s = time.time()
-    for geo_id in prescribe1.geo_list[-10:]:
+    for geo_id in prescribe1.geo_list:
         print(f"\n######################### run {geo_id}")
         prescribe1.run_geo(geo_id)
     e = time.time()
