@@ -28,10 +28,17 @@ class MyGa(pygad.GA):
         for generation in range(self.num_generations):
             # Measuring the fitness of each chromosome in the population.
             fitness = self.cal_pop_fitness()
+            fitness_num = len(fitness)
+            # for some cases for zero
+            if fitness_num < self.sol_per_pop:
+                return self.population[fitness_num-1]
+
             if not (self.on_fitness is None):
                 self.on_fitness(self, fitness)
 
             best_solution, best_solution_fitness, best_match_idx = self.best_solution(pop_fitness=fitness)
+            if best_solution_fitness >= -5.0:
+                return best_solution
 
             # Appending the fitness value of the best solution in the current generation to the best_solutions_fitness attribute.
             self.best_solutions_fitness.append(best_solution_fitness)
@@ -44,9 +51,10 @@ class MyGa(pygad.GA):
             if len(self.best_solutions_fitness) >= 2:
                 f1 = self.best_solutions_fitness[-1]
                 f2 = self.best_solutions_fitness[-2]
-                p = abs((f1 - f2) / f2)
+                d = f1 - f2
+                p = abs(d / f2)
                 print(f"improve percent {p:.3f} {f1-f2:.2f}")
-                if p < 0.01:
+                if p < 0.01 or d < 5:
                     print('Early stop')
                     return self.best_solutions[-1]
 
@@ -118,7 +126,30 @@ class MyGa(pygad.GA):
 
         # Converting the 'best_solutions' list into a NumPy array.
         self.best_solutions = numpy.array(self.best_solutions)
-        return super().run()
+        return self.best_solutions[-1]
+
+    def cal_pop_fitness(self):
+
+        """
+        Calculating the fitness values of all solutions in the current population.
+        It returns:
+            -fitness: An array of the calculated fitness values.
+        """
+
+        if self.valid_parameters == False:
+            raise ValueError("ERROR calling the cal_pop_fitness() method: \nPlease check the parameters passed while creating an instance of the GA class.\n")
+
+        pop_fitness = []
+        # Calculating the fitness value of each solution in the current population.
+        for sol_idx, sol in enumerate(self.population):
+            fitness = self.fitness_func(sol, sol_idx)
+            pop_fitness.append(fitness)
+
+            if fitness >= 0.0:
+                break
+        pop_fitness = numpy.array(pop_fitness)
+
+        return pop_fitness
 
 
 def add_geo_id(df):
@@ -368,12 +399,12 @@ class PrawnPrescribe:
                            )
         ga_instance.improve_percents = 1
         s = time.time()
-        ga_instance.run()
+        solution = ga_instance.run()
         country_name = gdf['CountryName'].iloc[0]
         region_name = gdf['RegionName'].iloc[0]
         num = len(self.date_range)
-        best_solution = ga_instance.best_solutions[-1]
-        real_policy = self.transfer_to_real_policy(best_solution)
+        # best_solution = ga_instance.best_solutions[-1]
+        real_policy = self.transfer_to_real_policy(solution)
         prescription_df = pd.DataFrame({
             'PrescriptionIndex': [prescription_index] * num,
             'CountryName': [country_name] * num,
@@ -387,7 +418,7 @@ class PrawnPrescribe:
         # print(f'median_fitness_val: {median_fitness_val}')
         print(f'finish in {e - s} seconds')
         print(f'Best fitness {ga_instance.best_solutions_fitness}')
-        prescription_df.to_csv(f'{geo}-{self.interval}.csv', index=False)
+        prescription_df.to_csv(f'{country_name}-{region_name}-{self.interval}.csv', index=False)
         return prescription_df
 
 
@@ -536,15 +567,19 @@ class GACluster:
 if __name__ == '__main__':
     x_predictor = XPrizePredictor()
 
-    prescribe1 = PrawnPrescribe(start_date_str='2020-08-01', end_date_str='2020-08-31',
+    prescribe1 = PrawnPrescribe(start_date_str='2020-08-01', end_date_str='2020-08-30',
                                 path_to_prior_ips_file='data/2020-09-30_historical_ip.csv',
                                 path_to_cost_file='data/uniform_random_costs.csv', predictor=x_predictor,
                                 interval=14
                                 )
 
-    for geo_id in prescribe1.geo_list[:10]:
+    prescribe1.run_geo('Vanuatu')
+    s = time.time()
+    for geo_id in prescribe1.geo_list[-10:]:
         print(f"\n######################### run {geo_id}")
         prescribe1.run_geo(geo_id)
+    e = time.time()
+    print(f'Total seconds {e-s}')
     # ga_instance_list = []
     # num_generations = 15
     # num_parents_mating = 10
