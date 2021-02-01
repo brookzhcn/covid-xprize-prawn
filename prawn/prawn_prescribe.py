@@ -11,6 +11,116 @@ from joblib import Parallel, delayed
 weekend_related_index = [0, 1]
 
 
+class MyGa(pygad.GA):
+
+    def run(self):
+        """
+        Runs the genetic algorithm. This is the main method in which the genetic algorithm is evolved through a number of generations.
+        """
+
+        if self.valid_parameters == False:
+            raise ValueError(
+                "ERROR calling the run() method: \nThe run() method cannot be executed with invalid parameters. Please check the parameters passed while creating an instance of the GA class.\n")
+
+        if not (self.on_start is None):
+            self.on_start(self)
+
+        for generation in range(self.num_generations):
+            # Measuring the fitness of each chromosome in the population.
+            fitness = self.cal_pop_fitness()
+            if not (self.on_fitness is None):
+                self.on_fitness(self, fitness)
+
+            best_solution, best_solution_fitness, best_match_idx = self.best_solution(pop_fitness=fitness)
+
+            # Appending the fitness value of the best solution in the current generation to the best_solutions_fitness attribute.
+            self.best_solutions_fitness.append(best_solution_fitness)
+
+            # Appending the best solution to the best_solutions list.
+            if self.save_best_solutions:
+                self.best_solutions.append(best_solution)
+            # early stop
+            print(f"############################# generation { generation }")
+            if len(self.best_solutions_fitness) >= 2:
+                f1 = self.best_solutions_fitness[-1]
+                f2 = self.best_solutions_fitness[-2]
+                p = abs((f1 - f2) / f2)
+                print(f"improve percent {p:.3f} {f1-f2:.2f}")
+                if p < 0.01:
+                    print('Early stop')
+                    return self.best_solutions[-1]
+
+            # Selecting the best parents in the population for mating.
+            parents = self.select_parents(fitness, num_parents=self.num_parents_mating)
+            if not (self.on_parents is None):
+                self.on_parents(self, parents)
+
+            # If self.crossover_type=None, then no crossover is applied and thus no offspring will be created in the next generations. The next generation will use the solutions in the current population.
+            if self.crossover_type is None:
+                if self.num_offspring <= self.keep_parents:
+                    offspring_crossover = parents[0:self.num_offspring]
+                else:
+                    offspring_crossover = numpy.concatenate(
+                        (parents, self.population[0:(self.num_offspring - parents.shape[0])]))
+            else:
+                # Generating offspring using crossover.
+                offspring_crossover = self.crossover(parents,
+                                                     offspring_size=(self.num_offspring, self.num_genes))
+                if not (self.on_crossover is None):
+                    self.on_crossover(self, offspring_crossover)
+            # If self.mutation_type=None, then no mutation is applied and thus no changes are applied to the offspring created using the crossover operation. The offspring will be used unchanged in the next generation.
+            if self.mutation_type is None:
+                offspring_mutation = offspring_crossover
+            else:
+                # Adding some variations to the offspring using mutation.
+                offspring_mutation = self.mutation(offspring_crossover)
+                if not (self.on_mutation is None):
+                    self.on_mutation(self, offspring_mutation)
+
+            if (self.keep_parents == 0):
+                self.population = offspring_mutation
+            elif (self.keep_parents == -1):
+                # Creating the new population based on the parents and offspring.
+                self.population[0:parents.shape[0], :] = parents
+                self.population[parents.shape[0]:, :] = offspring_mutation
+            elif (self.keep_parents > 0):
+                parents_to_keep = self.steady_state_selection(fitness, num_parents=self.keep_parents)
+                self.population[0:parents_to_keep.shape[0], :] = parents_to_keep
+                self.population[parents_to_keep.shape[0]:, :] = offspring_mutation
+
+            self.generations_completed = generation + 1  # The generations_completed attribute holds the number of the last completed generation.
+
+            # If the callback_generation attribute is not None, then cal the callback function after the generation.
+            if not (self.on_generation is None):
+                r = self.on_generation(self)
+                if type(r) is str and r.lower() == "stop":
+                    return self.best_solutions[-1]
+                    # # Before aborting the loop, save the fitness value of the best solution.
+                    # _, best_solution_fitness, _ = self.best_solution()
+                    # self.best_solutions_fitness.append(best_solution_fitness)
+                    # break
+
+            time.sleep(self.delay_after_gen)
+
+        last_gen_fitness = self.cal_pop_fitness()
+        # Save the fitness value of the best solution.
+        _, best_solution_fitness, _ = self.best_solution(pop_fitness=last_gen_fitness)
+        self.best_solutions_fitness.append(best_solution_fitness)
+
+        self.best_solution_generation = \
+        numpy.where(numpy.array(self.best_solutions_fitness) == numpy.max(numpy.array(self.best_solutions_fitness)))[0][
+            0]
+        # After the run() method completes, the run_completed flag is changed from False to True.
+        self.run_completed = True  # Set to True only after the run() method completes gracefully.
+
+        if not (self.on_stop is None):
+            self.on_stop(self, last_gen_fitness)
+
+        # Converting the 'best_solutions' list into a NumPy array.
+        self.best_solutions = numpy.array(self.best_solutions)
+        return super().run()
+
+
 def add_geo_id(df):
     # use standard predictor geo id
     df["GeoID"] = np.where(df["RegionName"].isnull(),
@@ -40,6 +150,7 @@ class PrawnPrescribe:
         self.num_of_intervals = math.ceil(self.num_of_days / self.interval)
         self.predictor = predictor
         self.verbose = verbose
+        self.generation = 0
 
     @staticmethod
     def load_cost_df(path_to_cost_file):
@@ -153,34 +264,30 @@ class PrawnPrescribe:
             avg_stringency = w.dot(total_policy.T).mean(axis=1).iloc[0]
             pred_df = self.predict(gdf, total_policy)
             avg_new_case = pred_df['PredictedDailyNewCases'].mean()
-            print(pred_df['PredictedDailyNewCases'])
+            # print(pred_df['PredictedDailyNewCases'])
             val = -avg_new_case - ratio * avg_stringency
-            print(
-                "{} Solution {}: {:.2f},  avg_stringency: {:.2f}  avg_new_case: {:.2f} \n".format(
-                    geo_id,
-                    solution_index,
-                    val,
-                    avg_stringency,
-                    avg_new_case
-                )
-            )
+            # print(
+            #     "{} Solution {}: {:.2f},  avg_stringency: {:.2f}  avg_new_case: {:.2f} \n".format(
+            #         geo_id,
+            #         solution_index,
+            #         val,
+            #         avg_stringency,
+            #         avg_new_case
+            #     )
+            # )
             return val
 
         return fitness_func
 
     def get_on_start(self):
         def on_start(ga_instance):
-            print('On start')
-            print(ga_instance)
+            print(f"############################# start generation {self.generation}")
 
         return on_start
 
     def get_on_fitness(self):
-
         def on_fitness(ga_instance, population_fitness):
-            print()
-            print("on_fitness()")
-            # print(f'min: {population_fitness.min()} max: {population_fitness.max()}')
+            pass
 
         return on_fitness
 
@@ -206,7 +313,7 @@ class PrawnPrescribe:
 
     def get_on_generation(self):
         def on_generation(ga_instance):
-            print("on_generation()")
+            pass
 
         return on_generation
 
@@ -217,7 +324,7 @@ class PrawnPrescribe:
         return on_stop
 
     def run_geo(self, geo, prescription_index=0):
-        ip = self.get_interval_policy()
+        # ip = self.get_interval_policy()
         ips_df = self.ips_df[(self.ips_df.Date >= self.start_date) &
                              (self.ips_df.Date <= self.end_date)]
         gdf = ips_df[ips_df.GeoID == geo].copy()
@@ -228,7 +335,7 @@ class PrawnPrescribe:
         # print(flat_policy)
 
         # print(average)
-        num_of_initial_policies = 50
+        num_of_initial_policies = 30
         initial_population = []
         for v in range(6):
             initial_population.append(self.get_fix_value_policy_flat(v))
@@ -240,25 +347,26 @@ class PrawnPrescribe:
         num_generations = 10  # Number of generations.
         num_parents_mating = 10  # Number of solutions to be selected as parents in the mating pool.
         fitness_func = self.get_fitness_func(gdf, 10)
-        ga_instance = pygad.GA(num_generations=num_generations,
-                               num_parents_mating=num_parents_mating,
-                               fitness_func=fitness_func,
-                               initial_population=initial_population,
-                               gene_type=int,
-                               parent_selection_type='rank',
-                               mutation_type='random',
-                               crossover_type='two_points',
-                               mutation_percent_genes=10,
-                               gene_space=[0, 1, 2, 3, 4, 5],
-                               # on_start=prescribe.get_on_start(),
-                               # on_fitness=prescribe.get_on_fitness(),
-                               # on_parents=prescribe.get_on_parents(),
-                               # on_crossover=prescribe.get_on_crossover(),
-                               # on_mutation=prescribe.get_on_mutation(),
-                               # on_generation=prescribe.get_on_generation(),
-                               # on_stop=prescribe.get_on_stop(),
-                               save_best_solutions=True
-                               )
+        ga_instance = MyGa(num_generations=num_generations,
+                           num_parents_mating=num_parents_mating,
+                           fitness_func=fitness_func,
+                           initial_population=initial_population,
+                           gene_type=int,
+                           parent_selection_type='rank',
+                           mutation_type='random',
+                           crossover_type='single_point',
+                           mutation_percent_genes=10,
+                           gene_space=[0, 1, 2, 3, 4, 5],
+                           # on_start=prescribe.get_on_start(),
+                           # on_fitness=self.get_on_fitness(),
+                           # on_parents=prescribe.get_on_parents(),
+                           # on_crossover=prescribe.get_on_crossover(),
+                           # on_mutation=prescribe.get_on_mutation(),
+                           # on_generation=self.get_on_generation(),
+                           # on_stop=prescribe.get_on_stop(),
+                           save_best_solutions=True
+                           )
+        ga_instance.improve_percents = 1
         s = time.time()
         ga_instance.run()
         country_name = gdf['CountryName'].iloc[0]
@@ -387,7 +495,7 @@ class GACluster:
                 else:
                     # Generating offspring using crossover.
                     offspring_crossover = ga_instance.crossover(parents, offspring_size=(
-                    ga_instance.num_offspring, ga_instance.num_genes))
+                        ga_instance.num_offspring, ga_instance.num_genes))
 
                 # If self.mutation_type=None, then no mutation is applied and thus no changes are applied to the offspring created using the crossover operation. The offspring will be used unchanged in the next generation.
                 if ga_instance.mutation_type is None:
@@ -428,12 +536,15 @@ class GACluster:
 if __name__ == '__main__':
     x_predictor = XPrizePredictor()
 
-    prescribe1 = PrawnPrescribe(start_date_str='2020-06-01', end_date_str='2020-08-31',
+    prescribe1 = PrawnPrescribe(start_date_str='2020-08-01', end_date_str='2020-08-31',
                                 path_to_prior_ips_file='data/2020-09-30_historical_ip.csv',
                                 path_to_cost_file='data/uniform_random_costs.csv', predictor=x_predictor,
                                 interval=14
                                 )
-    prescribe1.run_geo('Argentina')
+
+    for geo_id in prescribe1.geo_list[:10]:
+        print(f"\n######################### run {geo_id}")
+        prescribe1.run_geo(geo_id)
     # ga_instance_list = []
     # num_generations = 15
     # num_parents_mating = 10
