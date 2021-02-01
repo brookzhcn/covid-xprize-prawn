@@ -128,9 +128,9 @@ class PrawnPrescribe:
 
     def predict(self, gdf, policy):
         """
-        policy: interval policy
+        policy: total policy
         """
-        policy = self.transform_to_total_policy(policy)
+        # policy = self.transform_to_total_policy(policy)
         self.set_policy_df(gdf, policy)
         pred_df = self.predictor.predict_from_df(self.start_date_str, self.end_date_str, gdf)
         return pred_df
@@ -222,12 +222,12 @@ class PrawnPrescribe:
                              (self.ips_df.Date <= self.end_date)]
         gdf = ips_df[ips_df.GeoID == geo].copy()
         # print(gdf)
-        pred_df = self.predict(gdf, ip)
-        average = pred_df['PredictedDailyNewCases'].mean()
+        # pred_df = self.predict(gdf, ip)
+        # average = pred_df['PredictedDailyNewCases'].mean()
         # flat_policy = self.get_interval_policy_flat()
         # print(flat_policy)
 
-        print(average)
+        # print(average)
         num_of_initial_policies = 50
         initial_population = []
         for v in range(6):
@@ -433,38 +433,38 @@ if __name__ == '__main__':
                                 path_to_cost_file='data/uniform_random_costs.csv', predictor=x_predictor,
                                 interval=14
                                 )
-
-    ga_instance_list = []
-    num_generations = 15
-    num_parents_mating = 10
-
-    num_of_initial_policies = 50
-    initial_population = []
-    for v in range(6):
-        initial_population.append(prescribe1.get_fix_value_policy_flat(v))
-
-    for _ in range(num_of_initial_policies):
-        p = prescribe1.get_interval_policy_flat()
-        initial_population.append(p)
-
-    for geo_id in prescribe1.geo_list:
-        ga = GAWrapper(
-            num_generations=num_generations,
-            num_parents_mating=num_parents_mating,
-            fitness_func=lambda x, y: 1,
-            initial_population=initial_population,
-            gene_type=int,
-            parent_selection_type='rank',
-            mutation_type='random',
-            crossover_type='two_points',
-            gene_space=[0, 1, 2, 3, 4, 5],
-            save_best_solutions=True,
-            geo_id=geo_id,
-        )
-        ga_instance_list.append(ga)
-
-    ga_cluster = GACluster(*ga_instance_list, num_generations=num_generations, prescribe_instance=prescribe1, ratio=10)
-    ga_cluster.run()
+    prescribe1.run_geo('Argentina')
+    # ga_instance_list = []
+    # num_generations = 15
+    # num_parents_mating = 10
+    #
+    # num_of_initial_policies = 50
+    # initial_population = []
+    # for v in range(6):
+    #     initial_population.append(prescribe1.get_fix_value_policy_flat(v))
+    #
+    # for _ in range(num_of_initial_policies):
+    #     p = prescribe1.get_interval_policy_flat()
+    #     initial_population.append(p)
+    #
+    # for geo_id in prescribe1.geo_list:
+    #     ga = GAWrapper(
+    #         num_generations=num_generations,
+    #         num_parents_mating=num_parents_mating,
+    #         fitness_func=lambda x, y: 1,
+    #         initial_population=initial_population,
+    #         gene_type=int,
+    #         parent_selection_type='rank',
+    #         mutation_type='random',
+    #         crossover_type='two_points',
+    #         gene_space=[0, 1, 2, 3, 4, 5],
+    #         save_best_solutions=True,
+    #         geo_id=geo_id,
+    #     )
+    #     ga_instance_list.append(ga)
+    #
+    # ga_cluster = GACluster(*ga_instance_list, num_generations=num_generations, prescribe_instance=prescribe1, ratio=10)
+    # ga_cluster.run()
     # pool_size = multiprocessing.cpu_count() * 2
     # print(f'pool size {pool_size}')
     # pool = multiprocessing.Pool(processes=pool_size, initializer=start_process)
