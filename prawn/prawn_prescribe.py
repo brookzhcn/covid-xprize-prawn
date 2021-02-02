@@ -1,12 +1,11 @@
 import pandas as pd
 import numpy as np
-from prawn.standard_predictor.xprize_predictor import NPI_COLUMNS, XPrizePredictor
+from standard_predictor.xprize_predictor import NPI_COLUMNS, XPrizePredictor
 import math
 import pygad
 import time
 import multiprocessing
 import numpy
-from joblib import Parallel, delayed
 
 weekend_related_index = [0, 1]
 
@@ -31,7 +30,7 @@ class MyGa(pygad.GA):
             fitness_num = len(fitness)
             # for some cases for zero
             if fitness_num < self.sol_per_pop:
-                return self.population[fitness_num-1]
+                return self.population[fitness_num - 1]
 
             if not (self.on_fitness is None):
                 self.on_fitness(self, fitness)
@@ -47,13 +46,13 @@ class MyGa(pygad.GA):
             if self.save_best_solutions:
                 self.best_solutions.append(best_solution)
             # early stop
-            print(f"############################# generation { generation }")
+            print(f"############################# generation {generation}")
             if len(self.best_solutions_fitness) >= 2:
                 f1 = self.best_solutions_fitness[-1]
                 f2 = self.best_solutions_fitness[-2]
-                d = f1 - f2
+                d = abs(f1 - f2)
                 p = abs(d / f2)
-                print(f"improve percent {p:.3f} {f1-f2:.2f}")
+                print(f"improve percent {p:.3f} {f1 - f2:.2f}")
                 if p < 0.01 or d < 5:
                     print('Early stop')
                     return self.best_solutions[-1]
@@ -116,8 +115,9 @@ class MyGa(pygad.GA):
         self.best_solutions_fitness.append(best_solution_fitness)
 
         self.best_solution_generation = \
-        numpy.where(numpy.array(self.best_solutions_fitness) == numpy.max(numpy.array(self.best_solutions_fitness)))[0][
-            0]
+            numpy.where(
+                numpy.array(self.best_solutions_fitness) == numpy.max(numpy.array(self.best_solutions_fitness)))[0][
+                0]
         # After the run() method completes, the run_completed flag is changed from False to True.
         self.run_completed = True  # Set to True only after the run() method completes gracefully.
 
@@ -137,11 +137,16 @@ class MyGa(pygad.GA):
         """
 
         if self.valid_parameters == False:
-            raise ValueError("ERROR calling the cal_pop_fitness() method: \nPlease check the parameters passed while creating an instance of the GA class.\n")
-
-        pop_fitness = []
+            raise ValueError(
+                "ERROR calling the cal_pop_fitness() method: \nPlease check the parameters passed while creating an instance of the GA class.\n")
+        # keep the best parent and avoid duplicate compute
+        has_best_parent = len(self.best_solutions_fitness) > 0
+        pop_fitness = [self.best_solutions_fitness[-1]] if has_best_parent else []
         # Calculating the fitness value of each solution in the current population.
         for sol_idx, sol in enumerate(self.population):
+            if has_best_parent and sol_idx == 0:
+                print('ignore first')
+                continue
             fitness = self.fitness_func(sol, sol_idx)
             pop_fitness.append(fitness)
 
@@ -159,6 +164,13 @@ def add_geo_id(df):
                            df["CountryName"] + ' / ' + df["RegionName"])
 
 
+def get_country_region(geo_id):
+    parts = geo_id.split('/')
+    if len(parts) == 1:
+        return parts[0], None
+    return parts[0].rstrip(), parts[1].lstrip()
+
+
 class PrawnPrescribe:
     def __init__(self, start_date_str: str, end_date_str: str, path_to_prior_ips_file,
                  path_to_cost_file, predictor: XPrizePredictor, interval=7, verbose=True):
@@ -169,7 +181,8 @@ class PrawnPrescribe:
         self.date_range = pd.date_range(self.start_date, self.end_date)
         self.cost_df = self.load_cost_df(path_to_cost_file)
         ips_df = self.load_ips_df(path_to_prior_ips_file)
-        self.ips_df = ips_df[(ips_df['Date'] >= self.start_date_str) & (ips_df['Date'] <= self.end_date_str)]
+        self.ips_df = ips_df
+        # self.ips_df = ips_df[(ips_df['Date'] >= self.start_date_str) & (ips_df['Date'] <= self.end_date_str)]
         cost_dict = {}
         self.geo_list = self.cost_df.GeoID.unique().tolist()
         for geo_id in self.geo_list:
@@ -257,6 +270,22 @@ class PrawnPrescribe:
             policy.append(rp)
         return np.concatenate(policy)
 
+    def get_two_value_policy_flat(self, val, last_interval_val):
+        policy = []
+        for interval_index in range(self.num_of_intervals - 1):
+            rp = self._fix_value_policy(val)
+            policy.append(rp)
+        policy.append(self._fix_value_policy(last_interval_val))
+        return np.concatenate(policy)
+
+    def get_column_policy_flat(self, column_index):
+        policy = []
+        for interval_index in range(self.num_of_intervals - 1):
+            rp = self._fix_value_policy(5)
+            rp[column_index] = 0
+            policy.append(rp)
+        return np.concatenate(policy)
+
     def transform_to_total_policy(self, interval_policy):
         total = interval_policy.repeat(self.interval, axis=0)
         return total[:self.num_of_days]
@@ -283,12 +312,11 @@ class PrawnPrescribe:
     def transfer_to_real_policy(self, solution):
         return np.array(np.split(solution, self.num_of_intervals))
 
-    def get_fitness_func(self, gdf, ratio=1):
+    def get_fitness_func(self, gdf, geo_id, ratio=1):
         def fitness_func(solution, solution_index):
             """
             solution: interval policy
             """
-            geo_id = gdf['GeoID'].iloc[0]
             real_policy = self.transfer_to_real_policy(solution=solution)
             w = self.cost_dict[geo_id]
             total_policy = self.transform_to_total_policy(real_policy)
@@ -297,15 +325,15 @@ class PrawnPrescribe:
             avg_new_case = pred_df['PredictedDailyNewCases'].mean()
             # print(pred_df['PredictedDailyNewCases'])
             val = -avg_new_case - ratio * avg_stringency
-            # print(
-            #     "{} Solution {}: {:.2f},  avg_stringency: {:.2f}  avg_new_case: {:.2f} \n".format(
-            #         geo_id,
-            #         solution_index,
-            #         val,
-            #         avg_stringency,
-            #         avg_new_case
-            #     )
-            # )
+            print(
+                "{} Solution {}: {:.2f},  avg_stringency: {:.2f}  avg_new_case: {:.2f} \n".format(
+                    geo_id,
+                    solution_index,
+                    val,
+                    avg_stringency,
+                    avg_new_case
+                )
+            )
             return val
 
         return fitness_func
@@ -354,39 +382,51 @@ class PrawnPrescribe:
 
         return on_stop
 
-    def run_geo(self, geo, prescription_index=0):
+    def run_geo(self, geo, prescription_index=0, ratio=20):
         # ip = self.get_interval_policy()
-        ips_df = self.ips_df[(self.ips_df.Date >= self.start_date) &
-                             (self.ips_df.Date <= self.end_date)]
-        gdf = ips_df[ips_df.GeoID == geo].copy()
+        ips_df = self.ips_df
+        # gdf = ips_df[ips_df.GeoID == geo]
+        country_name, region_name = get_country_region(geo)
         # print(gdf)
         # pred_df = self.predict(gdf, ip)
         # average = pred_df['PredictedDailyNewCases'].mean()
         # flat_policy = self.get_interval_policy_flat()
         # print(flat_policy)
-
         # print(average)
-        num_of_initial_policies = 30
+        num_of_initial_policies = 10
         initial_population = []
         for v in range(6):
             initial_population.append(self.get_fix_value_policy_flat(v))
+
+        for v in range(2, 6):
+            p = self.get_two_value_policy_flat(v, last_interval_val=v - 2)
+            initial_population.append(p)
+
+        # for i in range(12):
+        #     p = self.get_column_policy_flat(i)
+        #     initial_population.append(p)
 
         for _ in range(num_of_initial_policies):
             p = self.get_interval_policy_flat()
             initial_population.append(p)
 
+        gdf = pd.DataFrame({
+            'CountryName': [country_name] * self.num_of_days,
+            'RegionName': [region_name] * self.num_of_days,
+            'GeoID': [geo] * self.num_of_days,
+            'Date': pd.date_range(self.start_date_str, self.end_date_str),
+        })
         num_generations = 10  # Number of generations.
         num_parents_mating = 10  # Number of solutions to be selected as parents in the mating pool.
-        fitness_func = self.get_fitness_func(gdf, 10)
+        fitness_func = self.get_fitness_func(gdf, geo, ratio)
         ga_instance = MyGa(num_generations=num_generations,
                            num_parents_mating=num_parents_mating,
                            fitness_func=fitness_func,
                            initial_population=initial_population,
                            gene_type=int,
-                           parent_selection_type='rank',
+                           parent_selection_type='sss',
                            mutation_type='random',
                            crossover_type='single_point',
-                           mutation_percent_genes=10,
                            gene_space=[0, 1, 2, 3, 4, 5],
                            # on_start=prescribe.get_on_start(),
                            # on_fitness=self.get_on_fitness(),
@@ -396,7 +436,8 @@ class PrawnPrescribe:
                            # on_generation=self.get_on_generation(),
                            # on_stop=prescribe.get_on_stop(),
                            suppress_warnings=True,
-                           save_best_solutions=True
+                           save_best_solutions=True,
+                           keep_parents=1
                            )
         ga_instance.improve_percents = 1
         s = time.time()
@@ -427,7 +468,7 @@ def start_process():
     print('Starting, ', multiprocessing.current_process().name)
 
 
-def run_geo(geo, start_date, end_date, path_to_cost_file, path_to_prior_ips_file):
+def run_geo(geo, start_date, end_date, path_to_cost_file, path_to_prior_ips_file, ratio=10):
     print(f'run {geo}')
     x_predictor = XPrizePredictor()
     prescribe = PrawnPrescribe(start_date_str=start_date, end_date_str=end_date,
@@ -437,7 +478,7 @@ def run_geo(geo, start_date, end_date, path_to_cost_file, path_to_prior_ips_file
                                interval=14
                                )
 
-    return prescribe.run_geo(geo)
+    return prescribe.run_geo(geo, ratio=ratio)
     # print(f'pool size {pool_size}')
     # pool = multiprocessing.Pool(processes=pool_size, initializer=start_process)
 
@@ -569,20 +610,21 @@ class GACluster:
 
 if __name__ == '__main__':
     x_predictor = XPrizePredictor()
-
-    prescribe1 = PrawnPrescribe(start_date_str='2020-08-01', end_date_str='2020-08-10',
-                                path_to_prior_ips_file='data/2020-09-30_historical_ip.csv',
-                                path_to_cost_file='data/uniform_random_costs.csv', predictor=x_predictor,
+    base_dir = '/Users/brook/PycharmProjects/covid-xprize-prawn/prawn/'
+    prescribe1 = PrawnPrescribe(start_date_str='2021-01-01', end_date_str='2021-03-31',
+                                path_to_prior_ips_file=f'{base_dir}/data/all_2020_ips.csv',
+                                path_to_cost_file=f'{base_dir}/data/uniform_random_costs.csv', predictor=x_predictor,
                                 interval=14
                                 )
 
-    prescribe1.run_geo('Vanuatu')
-    s = time.time()
-    for geo_id in prescribe1.geo_list:
-        print(f"\n######################### run {geo_id}")
-        prescribe1.run_geo(geo_id)
-    e = time.time()
-    print(f'Total seconds {e-s}')
+    r = prescribe1.run_geo('Afghanistan', ratio=50)
+    print(r)
+    # s = time.time()
+    # for geo_id in prescribe1.geo_list:
+    #     print(f"\n######################### run {geo_id}")
+    #     prescribe1.run_geo(geo_id)
+    # e = time.time()
+    # print(f'Total seconds {e-s}')
     # ga_instance_list = []
     # num_generations = 15
     # num_parents_mating = 10

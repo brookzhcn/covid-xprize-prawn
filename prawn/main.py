@@ -1,4 +1,4 @@
-from prawn.prawn_prescribe import run_geo, add_geo_id
+from prawn_prescribe import run_geo, add_geo_id
 from joblib import Parallel, delayed
 from prawn.standard_predictor.xprize_predictor import NPI_COLUMNS, XPrizePredictor
 import pandas as pd
@@ -13,7 +13,7 @@ if __name__ == '__main__':
     start_date_str = '2020-06-01'
     end_date_str = '2020-08-30'
     s = time.time()
-    outputs = Parallel(backend='loky', n_jobs=12)(delayed(run_geo)(geo, start_date_str, end_date_str,
+    outputs = Parallel(backend='loky', n_jobs=6)(delayed(run_geo)(geo, start_date_str, end_date_str,
                                                                    path_to_cost_file, path_to_prior_ips_file)
                                                   for geo in geo_list)
     df = pd.concat(outputs)
