@@ -7,7 +7,7 @@ import time
 import multiprocessing
 import numpy
 
-weekend_related_index = [0, 1]
+# weekend_related_index = [5, 6]
 
 
 class MyGa(pygad.GA):
@@ -176,6 +176,12 @@ class PrawnPrescribe:
     def __init__(self, start_date_str: str, end_date_str: str, path_to_prior_ips_file,
                  path_to_cost_file, predictor: XPrizePredictor, interval=7, verbose=True):
         self.start_date = pd.to_datetime(start_date_str, format='%Y-%m-%d')
+        # self.start_dayofweek = self.start_date.dayofweek
+        # sat_index = 5 - self.start_dayofweek
+        # if sat_index < 0:
+        #     sat_index += 7
+        # sun_index = 6 - self.start_dayofweek
+
         self.end_date = pd.to_datetime(end_date_str, format='%Y-%m-%d')
         self.start_date_str = start_date_str
         self.end_date_str = end_date_str
@@ -193,6 +199,18 @@ class PrawnPrescribe:
         # the policy change according to this interval
         self.interval = interval
         self.num_of_intervals = math.ceil(self.num_of_days / self.interval)
+        # weekend_index = []
+        # while sun_index < self.num_of_days or sat_index < self.num_of_days:
+        #     if sat_index < self.num_of_days:
+        #         weekend_index.append(sat_index)
+        #     if sun_index < self.num_of_days:
+        #         weekend_index.append(sun_index)
+        #
+        #     sat_index += 7
+        #     sun_index += 7
+        #
+        # self.weekend_index = weekend_index
+
         self.predictor = predictor
         self.verbose = verbose
         self.generation = 0
@@ -291,12 +309,12 @@ class PrawnPrescribe:
         total = interval_policy.repeat(self.interval, axis=0)
         return total[:self.num_of_days]
 
-    @staticmethod
-    def set_policy_df(gdf, total_policy):
+    def set_policy_df(self, gdf, total_policy):
         """
         gdf should contain only data in [start_date, end_date]
         """
         gdf.loc[:, NPI_COLUMNS] = total_policy
+        # gdf.iloc[self.weekend_index, weekend_related_index] = 0
 
     def predict(self, gdf, policy):
         """
@@ -464,6 +482,32 @@ class PrawnPrescribe:
         # prescription_df.to_csv(f'{country_name}-{region_name}-{self.interval}.csv', index=False)
         return prescription_df
 
+    def filter_geos(self, threshold=50, test_days=14):
+        empty_geos = []
+        others = []
+        dr = pd.date_range(self.start_date_str, periods=test_days)
+        end_date_str = dr[-1].strftime('%Y-%m-%d')
+        for geo in self.geo_list:
+            c, r = get_country_region(geo)
+            zero_df = pd.DataFrame({
+                'PrescriptionIndex': [0] * test_days,
+                'CountryName': [c] * test_days,
+                'RegionName': [r] * test_days,
+                'GeoID': [geo] * test_days,
+                'Date': dr
+            })
+            zero_df.loc[:, NPI_COLUMNS] = 0
+            pred_df = self.predictor.predict_from_df(self.start_date_str, end_date_str, zero_df)
+            avg_new_case = pred_df['PredictedDailyNewCases'].mean()
+            if avg_new_case < threshold:
+                print(f'zero policy for {geo}: {avg_new_case}')
+                empty_geos.append(geo)
+            else:
+                others.append(geo)
+        return empty_geos, others
+
+
+
 
 def start_process():
     print('Starting, ', multiprocessing.current_process().name)
@@ -618,7 +662,7 @@ if __name__ == '__main__':
                                 interval=14
                                 )
 
-    r = prescribe1.run_geo('Andorra', ratio=50)
+    r = prescribe1.run_geo('Zambia', ratio=50)
     print(r)
     # s = time.time()
     # for geo_id in prescribe1.geo_list:
