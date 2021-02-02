@@ -7,7 +7,7 @@ import time
 if __name__ == '__main__':
     path_to_prior_ips_file = 'data/all_2020_ips.csv'
     path_to_cost_file = 'data/uniform_random_costs.csv'
-    x_predictor = XPrizePredictor = XPrizePredictor()
+    x_predictor = XPrizePredictor()
     cost_df = pd.read_csv(path_to_cost_file, dtype={"RegionName": str, "RegionCode": str})
     add_geo_id(cost_df)
     geo_list = cost_df.GeoID.unique().tolist()

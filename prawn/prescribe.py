@@ -4,7 +4,8 @@ import argparse
 import pandas as pd
 from joblib import Parallel, delayed
 import time
-from prawn.prawn_prescribe import add_geo_id, run_geo
+from prawn_prescribe import run_geo, PrawnPrescribe, get_country_region
+from prawn.standard_predictor.xprize_predictor import NPI_COLUMNS, XPrizePredictor
 
 
 def prescribe(start_date: str,
@@ -27,17 +28,40 @@ def prescribe(start_date: str,
     """
     # !!! YOUR CODE HERE !!!
 
-    cost_df = pd.read_csv(path_to_cost_file, dtype={"RegionName": str, "RegionCode": str})
-    add_geo_id(cost_df)
-    geo_list = cost_df.GeoID.unique().tolist()
     s = time.time()
+    x_predictor = XPrizePredictor()
+    prescribe1 = PrawnPrescribe(start_date_str=start_date, end_date_str=end_date,
+                                path_to_prior_ips_file=path_to_prior_ips_file,
+                                path_to_cost_file=path_to_cost_file, predictor=x_predictor,
+                                interval=14
+                                )
+    zero_geos, others = prescribe1.filter_geos()
+    zero_outputs = []
+    date_range = prescribe1.date_range
+    num_of_days = prescribe1.num_of_days
+    for zero_geo in zero_geos:
+        c, r = get_country_region(zero_geo)
+        zero_df = pd.DataFrame({
+            'PrescriptionIndex': [0] * num_of_days,
+            'CountryName': [c] * num_of_days,
+            'RegionName': [r] * num_of_days,
+            'Date': date_range
+        })
+        zero_df.loc[:, NPI_COLUMNS] = 0
+        zero_outputs.append(zero_df)
+
+    print(zero_geos)
+    print(others)
+
+    ratio = 50
     outputs = Parallel(backend='loky', n_jobs=2)(delayed(run_geo)(geo, start_date, end_date,
-                                                                  path_to_cost_file, path_to_prior_ips_file)
-                                                 for geo in geo_list)
+                                                                  path_to_cost_file, path_to_prior_ips_file, ratio)
+                                                 for geo in others)
+    outputs += zero_outputs
     df = pd.concat(outputs)
-    df.to_csv(output_file_path, index=False)
+    df.to_csv('result.csv', index=False)
     e = time.time()
-    print(f'Total seconds {e-s}')
+    print(f'Total seconds {e - s}')
 
 
 # !!! PLEASE DO NOT EDIT. THIS IS THE OFFICIAL COMPETITION API !!!
