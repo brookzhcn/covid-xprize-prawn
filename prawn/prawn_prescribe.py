@@ -150,7 +150,8 @@ class MyGa(pygad.GA):
             fitness = self.fitness_func(sol, sol_idx)
             pop_fitness.append(fitness)
 
-            if fitness >= 0.0:
+            if abs(fitness) < 50:
+                print(f'fitness {fitness} found')
                 break
         pop_fitness = numpy.array(pop_fitness)
 
@@ -617,7 +618,7 @@ if __name__ == '__main__':
                                 interval=14
                                 )
 
-    r = prescribe1.run_geo('Afghanistan', ratio=50)
+    r = prescribe1.run_geo('Andorra', ratio=50)
     print(r)
     # s = time.time()
     # for geo_id in prescribe1.geo_list:
