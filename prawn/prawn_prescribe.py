@@ -6,8 +6,27 @@ import pygad
 import time
 import multiprocessing
 import numpy
+import random
 
 # weekend_related_index = [5, 6]
+
+IP_MAX_VALUES = {
+    'C1_School closing': 3,
+    'C2_Workplace closing': 3,
+    'C3_Cancel public events': 2,
+    'C4_Restrictions on gatherings': 4,
+    'C5_Close public transport': 2,
+    'C6_Stay at home requirements': 3,
+    'C7_Restrictions on internal movement': 2,
+    'C8_International travel controls': 4,
+    'H1_Public information campaigns': 2,
+    'H2_Testing policy': 3,
+    'H3_Contact tracing': 2,
+    'H6_Facial Coverings': 4
+}
+MAX_VALUES = [3, 3, 2, 4, 2, 3, 2, 4, 2, 3, 2, 4]
+
+GENE_SPACE = [list(range(m+1)) for m in MAX_VALUES]
 
 
 class MyGa(pygad.GA):
@@ -237,8 +256,12 @@ class PrawnPrescribe:
         return self.cost_dict[geo_id].dot(npi_array)
 
     @staticmethod
-    def _random_policy(max_value=6):
-        return np.random.randint(0, max_value, size=len(NPI_COLUMNS))
+    def _random_policy():
+        return [random.randint(0, m) for m in MAX_VALUES]
+
+    @staticmethod
+    def _max_policy():
+        return np.array(MAX_VALUES)
 
     @staticmethod
     def _fix_value_policy(val):
@@ -279,6 +302,13 @@ class PrawnPrescribe:
         policy = []
         for interval_index in range(self.num_of_intervals):
             rp = self._random_policy()
+            policy.append(rp)
+        return np.concatenate(policy)
+
+    def get_max_policy_flat(self):
+        policy = []
+        for interval_index in range(self.num_of_intervals):
+            rp = np.array(MAX_VALUES)
             policy.append(rp)
         return np.concatenate(policy)
 
@@ -401,6 +431,12 @@ class PrawnPrescribe:
 
         return on_stop
 
+    def get_gene_space(self):
+        space = []
+        for _ in range(self.num_of_intervals):
+            space += GENE_SPACE
+        return space
+
     def run_geo(self, geo, prescription_index=0, ratio=20):
         # ip = self.get_interval_policy()
         ips_df = self.ips_df
@@ -412,18 +448,16 @@ class PrawnPrescribe:
         # flat_policy = self.get_interval_policy_flat()
         # print(flat_policy)
         # print(average)
-        num_of_initial_policies = 10
+        num_of_initial_policies = 15
         initial_population = []
-        for v in range(6):
+        # 0, 1, 2
+        for v in range(3):
             initial_population.append(self.get_fix_value_policy_flat(v))
 
-        for v in range(2, 6):
-            p = self.get_two_value_policy_flat(v, last_interval_val=v - 2)
+        for v in range(1, 3):
+            p = self.get_two_value_policy_flat(v, last_interval_val=v - 1)
             initial_population.append(p)
-
-        # for i in range(12):
-        #     p = self.get_column_policy_flat(i)
-        #     initial_population.append(p)
+        initial_population.append(self.get_max_policy_flat())
 
         for _ in range(num_of_initial_policies):
             p = self.get_interval_policy_flat()
@@ -446,7 +480,8 @@ class PrawnPrescribe:
                            parent_selection_type='sss',
                            mutation_type='random',
                            crossover_type='single_point',
-                           gene_space=[0, 1, 2, 3, 4, 5],
+                           gene_space=self.get_gene_space(),
+                           num_genes=self.num_of_intervals * len(MAX_VALUES),
                            # on_start=prescribe.get_on_start(),
                            # on_fitness=self.get_on_fitness(),
                            # on_parents=prescribe.get_on_parents(),
@@ -505,8 +540,6 @@ class PrawnPrescribe:
             else:
                 others.append(geo)
         return empty_geos, others
-
-
 
 
 def start_process():
@@ -656,13 +689,13 @@ class GACluster:
 if __name__ == '__main__':
     x_predictor = XPrizePredictor()
     base_dir = '/Users/brook/PycharmProjects/covid-xprize-prawn/prawn/'
-    prescribe1 = PrawnPrescribe(start_date_str='2021-01-01', end_date_str='2021-03-31',
+    prescribe1 = PrawnPrescribe(start_date_str='2021-01-01', end_date_str='2021-01-31',
                                 path_to_prior_ips_file=f'{base_dir}/data/all_2020_ips.csv',
                                 path_to_cost_file=f'{base_dir}/data/uniform_random_costs.csv', predictor=x_predictor,
                                 interval=14
                                 )
 
-    r = prescribe1.run_geo('Zambia', ratio=50)
+    r = prescribe1.run_geo('Argentina', ratio=50)
     print(r)
     # s = time.time()
     # for geo_id in prescribe1.geo_list:

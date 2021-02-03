@@ -5,7 +5,7 @@ import pandas as pd
 from joblib import Parallel, delayed
 import time
 from prawn_prescribe import run_geo, PrawnPrescribe, get_country_region
-from prawn.standard_predictor.xprize_predictor import NPI_COLUMNS, XPrizePredictor
+from standard_predictor.xprize_predictor import NPI_COLUMNS, XPrizePredictor
 
 
 def prescribe(start_date: str,
@@ -59,7 +59,7 @@ def prescribe(start_date: str,
                                                  for geo in others)
     outputs += zero_outputs
     df = pd.concat(outputs)
-    df.to_csv('result.csv', index=False)
+    df.to_csv(output_file_path, index=False)
     e = time.time()
     print(f'Total seconds {e - s}')
 
